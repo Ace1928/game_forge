@@ -42,7 +42,7 @@ Controls: ESC to exit
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
-from typing import Dict, List, Tuple, TypeVar
+from typing import Any, Dict, List, Tuple, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -299,7 +299,7 @@ class GeneticParamConfig:
             raise KeyError(f"Unknown trait: {trait_name}")
         return self.trait_definitions[trait_name].range
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> Dict[str, Any]:
         """
         Convert configuration to a serializable dictionary.
 
@@ -314,6 +314,48 @@ class GeneticParamConfig:
             for name, definition in self.trait_definitions.items()
         }
         return result
+
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "GeneticParamConfig":
+        """
+        Create a genetic parameter configuration from a dictionary.
+
+        Args:
+            config_dict: Dictionary containing genetic configuration parameters
+
+        Returns:
+            Fully initialized GeneticParamConfig instance
+
+        Raises:
+            ValueError: If dictionary contains invalid genetic configuration
+        """
+        instance = cls()
+
+        # Handle trait definitions separately if present
+        trait_defs = config_dict.pop("trait_definitions", {})
+        if trait_defs:
+            # Recreate TraitDefinition objects from dictionary representation
+            instance.trait_definitions = {
+                name: TraitDefinition(
+                    name=def_dict["name"],
+                    type=(
+                        TraitType[def_dict["type"].name]
+                        if isinstance(def_dict["type"], Enum)
+                        else def_dict["type"]
+                    ),
+                    range=def_dict["range"],
+                    description=def_dict["description"],
+                    default=def_dict["default"],
+                )
+                for name, def_dict in trait_defs.items()
+            }
+
+        # Set all other attributes
+        for key, value in config_dict.items():
+            if hasattr(instance, key):
+                setattr(instance, key, value)
+
+        return instance
 
 
 class SimulationConfig:
@@ -385,6 +427,7 @@ class SimulationConfig:
         self.energy_transfer_factor: float = 0.7
         self.mass_transfer: bool = True
         self.energy_efficiency_range: Range = (-0.4, 3.0)
+        self.max_energy: float = 300.0  # Maximum energy for particles
 
         # Lifecycle parameters
         self.max_frames: int = 0  # 0 = infinite
@@ -539,7 +582,7 @@ class SimulationConfig:
         if not (0.0 <= self.structural_complexity_weight <= 1.0):
             raise ValueError("Structural complexity weight must be between 0.0 and 1.0")
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> Dict[str, Any]:
         """
         Convert entire configuration to a flat dictionary representation.
 
@@ -559,7 +602,7 @@ class SimulationConfig:
         return config_dict
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, object]) -> "SimulationConfig":
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "SimulationConfig":
         """
         Create a configuration instance from a dictionary.
 
@@ -574,8 +617,10 @@ class SimulationConfig:
         """
         instance = cls()
 
-        # Extract genetics config if present
+        # Extract genetics config if present and properly initialize it
         genetics_dict = config_dict.pop("genetics", None)
+        if genetics_dict:
+            instance.genetics = GeneticParamConfig.from_dict(genetics_dict)
 
         # Set all other attributes
         for key, value in config_dict.items():

@@ -59,20 +59,29 @@ from gp_config import SimulationConfig
 ###############################################################
 
 
-def main() -> None:
+def main():
     """Initialize and run the Gene Particles simulation.
 
-    Creates a simulation with default configuration and executes the main loop
-    until termination conditions are met (ESC key, window close, or reaching max_frames).
+    Creates a simulation with default configuration parameters and executes
+    the main evolutionary loop until termination conditions are met.
+
+    The simulation continues until one of the following occurs:
+        - User presses the ESC key
+        - User closes the simulation window
+        - Simulation reaches configured maximum frame count
 
     Returns:
-        None
+        NoReturn: Function does not return normally, terminates via system exit
+
+    Raises:
+        ImportError: If required dependencies are not installed
+        RuntimeError: If simulation initialization fails
     """
     # Create simulation configuration with default parameters
-    config = SimulationConfig()
+    config: SimulationConfig = SimulationConfig()
 
     # Initialize the cellular automata system with configuration
-    cellular_automata = CellularAutomata(config)
+    cellular_automata: CellularAutomata = CellularAutomata(config)
 
     # Execute main simulation loop until termination
     cellular_automata.main_loop()

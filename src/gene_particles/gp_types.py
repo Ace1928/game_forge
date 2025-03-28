@@ -1,24 +1,65 @@
+"""Gene Particles Type System Module.
+
+Provides comprehensive type definitions and data structures for the Gene Particles simulation,
+including genetic trait architecture, cellular component management, evolutionary mechanics,
+and emergent behavior algorithms with rigorous type safety.
+"""
+
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional, Tuple, TypeVar
+from typing import Any, List, Optional, Protocol, Tuple, TypeVar
 
 import numpy as np
-from gp_config import SimulationConfig
-from gp_utility import random_xy
 from numpy.typing import NDArray
-from scipy.spatial import cKDTree
 
-# Type aliases for enhanced readability
-Vector2D = Tuple[float, float]  # (x, y) coordinate pair
-ColorRGB = Tuple[int, int, int]  # (r, g, b) color values 0-255
-# Type aliases for improved readability
-FloatArray = NDArray[np.float64]
+# Import scipy's cKDTree with explicit type handling
+try:
+    from scipy.spatial import KDTree  # type: ignore[import]
+except ImportError:
+    # Fallback for type checking
+    class KDTree:
+        """Type stub for SciPy's KDTree class when imports fail."""
+
+        def __init__(self, data: NDArray[np.float64], leafsize: int = 10):
+            pass
+
+        def query(
+            self,
+            x: Any,
+            k: int = 1,
+            eps: float = 0.0,
+            p: float = 2.0,
+            distance_upper_bound: float = np.inf,
+            workers: Optional[int] = 1,
+        ) -> Tuple[Any, Any]:
+            """Stub for query method."""
+            return np.array([]), np.array([])
+
+
+from game_forge.src.gene_particles.gp_config import SimulationConfig
+from game_forge.src.gene_particles.gp_utility import (
+    BoolArray,
+    ColorRGB,
+    FloatArray,
+    IntArray,
+    Range,
+    random_xy,
+)
+
+# Generic type variable for trait values
 T = TypeVar("T")
-Range = Tuple[float, float]
+
+###############################################################
+# Type Definitions
+###############################################################
 
 
 class TraitType(Enum):
-    """Genetic trait categories for organizational and validation purposes."""
+    """Genetic trait categories for organizational and validation purposes.
+
+    Enumerates the core categories of genetic traits to facilitate organized
+    validation, processing, and evolutionary dynamics.
+    """
 
     MOVEMENT = auto()  # Traits affecting particle motion
     INTERACTION = auto()  # Traits affecting inter-particle forces
@@ -30,15 +71,17 @@ class TraitType(Enum):
 
 @dataclass(frozen=True)
 class TraitDefinition:
-    """
-    Immutable definition of a genetic trait's properties and constraints.
+    """Immutable definition of a genetic trait's properties and constraints.
+
+    Provides a type-safe, immutable structure for defining genetic traits
+    with their valid ranges, categories, and default values.
 
     Attributes:
-         name: Unique identifier for the trait
-         type: Categorical classification of trait purpose
-         range: Valid minimum/maximum values
-         description: Human-readable explanation of trait function
-         default: Starting value for initialization
+        name: Unique identifier for the trait
+        type: Categorical classification of trait purpose
+        range: Valid minimum/maximum values as (min, max) tuple
+        description: Human-readable explanation of trait function
+        default: Starting value for initialization
     """
 
     name: str
@@ -48,16 +91,49 @@ class TraitDefinition:
     default: float
 
 
-class CellularTypeData:
+class CellularTypeProtocol(Protocol):
+    """Structural protocol defining the expected shape of cellular type data.
+
+    Acts as a type contract for any data structure representing a cellular type,
+    ensuring it provides all required attributes for rendering operations.
     """
-    Represents a cellular type with multiple cellular components.
-    Manages positions, velocities, energy, mass, and genetic traits of components.
+
+    alive: NDArray[np.bool_]  # Boolean mask of living components
+    x: NDArray[np.float64]  # X-coordinates
+    y: NDArray[np.float64]  # Y-coordinates
+    energy: NDArray[np.float64]  # Energy levels
+    speed_factor: NDArray[np.float64]  # Speed trait values
+    color: ColorRGB  # RGB color tuple for this cellular type
+
+
+class CellularTypeData:
+    """Represents a cellular type with multiple cellular components.
+
+    Manages positions, velocities, energy, mass, and genetic traits of components
+    with vectorized operations and spatial optimization.
+
+    Conforms to CellularTypeProtocol for rendering compatibility.
+
+    Attributes:
+        type_id: Unique identifier for this cellular type
+        color: RGB color tuple for rendering components of this type
+        mass_based: Whether this type uses mass in physical calculations
+        x: X-coordinate positions of all components
+        y: Y-coordinate positions of all components
+        vx: X-velocity components of all particles
+        vy: Y-velocity components of all particles
+        energy: Energy levels of all components
+        mass: Mass values for mass-based types (None for massless types)
+        alive: Boolean mask indicating which components are alive
+        age: Current age of each component
+        max_age: Maximum age before component death
+        plus various genetic trait arrays and metadata attributes
     """
 
     def __init__(
         self,
         type_id: int,
-        color: Tuple[int, int, int],
+        color: ColorRGB,
         n_particles: int,
         window_width: int,
         window_height: int,
@@ -66,17 +142,9 @@ class CellularTypeData:
         mass: Optional[float] = None,
         base_velocity_scale: float = 1.0,
         energy_efficiency: Optional[float] = None,
-        gene_traits: List[str] = [
-            "speed_factor",
-            "interaction_strength",
-            "perception_range",
-            "reproduction_rate",
-            "synergy_affinity",
-            "colony_factor",
-            "drift_sensitivity",
-        ],
+        gene_traits: Optional[List[str]] = None,
         gene_mutation_rate: float = 0.05,
-        gene_mutation_range: Tuple[float, float] = (-0.1, 0.1),
+        gene_mutation_range: Range = (-0.1, 0.1),
         min_energy: float = 0.0,
         max_energy: float = 1000.0,
         min_mass: float = 0.1,
@@ -95,398 +163,263 @@ class CellularTypeData:
         max_drift: float = 2.0,
         min_energy_efficiency: float = -0.3,
         max_energy_efficiency: float = 2.5,
-    ):
-        """
-        Initialize a CellularTypeData instance with given parameters.
+    ) -> None:
+        """Initialize a CellularTypeData instance with given parameters.
 
-        Parameters:
-        -----------
-        type_id : int
-            Unique identifier for the cellular type.
-        color : Tuple[int, int, int]
-            RGB color tuple for rendering cellular components of this type.
-        n_particles : int
-            Initial number of cellular components in this type.
-        window_width : int
-            Width of the simulation window in pixels.
-        window_height : int
-            Height of the simulation window in pixels.
-        initial_energy : float
-            Initial energy assigned to each cellular component.
-        max_age : float, default=np.inf
-            Maximum age a cellular component can reach before dying.
-        mass : Optional[float], default=None
-            Mass of cellular components if the type is mass-based.
-        base_velocity_scale : float, default=1.0
-            Base scaling factor for initial velocities of cellular components.
-        energy_efficiency : Optional[float], default=None
-            Initial energy efficiency trait of cellular components. If None, randomly initialized within range.
-        gene_traits : List[str], default=["speed_factor", "interaction_strength", "perception_range", "reproduction_rate", "synergy_affinity", "colony_factor", "drift_sensitivity"]
-            List of gene trait names.
-        gene_mutation_rate : float, default=0.05
-            Base mutation rate for gene traits (0.0 to 1.0).
-        gene_mutation_range : Tuple[float, float], default=(-0.1, 0.1)
-            Range for gene trait mutations (units: arbitrary).
-        min_energy : float, default=0.0
-            Minimum allowed energy value.
-        max_energy : float, default=1000.0
-            Maximum allowed energy value.
-        min_mass : float, default=0.1
-            Minimum allowed mass value.
-        max_mass : float, default=10.0
-            Maximum allowed mass value.
-        min_velocity : float, default=-10.0
-            Minimum allowed velocity value.
-        max_velocity : float, default=10.0
-            Maximum allowed velocity value.
-        min_perception : float, default=10.0
-            Minimum allowed perception range.
-        max_perception : float, default=300.0
-            Maximum allowed perception range.
-        min_reproduction : float, default=0.05
-            Minimum allowed reproduction rate.
-        max_reproduction : float, default=1.0
-            Maximum allowed reproduction rate.
-        min_synergy : float, default=0.0
-            Minimum allowed synergy affinity.
-        max_synergy : float, default=2.0
-            Maximum allowed synergy affinity.
-        min_colony : float, default=0.0
-            Minimum allowed colony factor.
-        max_colony : float, default=1.0
-            Maximum allowed colony factor.
-        min_drift : float, default=0.0
-            Maximum allowed drift sensitivity.
+        Creates a new cellular type with specified number of components,
+        initializing all trait arrays and state variables using vectorized operations.
+
+        Args:
+            type_id: Unique identifier for the cellular type
+            color: RGB color tuple for rendering cellular components
+            n_particles: Initial number of cellular components
+            window_width: Width of the simulation window in pixels
+            window_height: Height of the simulation window in pixels
+            initial_energy: Initial energy assigned to each component
+            max_age: Maximum age before component death
+            mass: Mass of components (if mass-based)
+            base_velocity_scale: Base scaling factor for initial velocities
+            energy_efficiency: Initial energy efficiency trait
+            gene_traits: List of gene trait names to initialize
+            gene_mutation_rate: Base mutation rate for gene traits
+            gene_mutation_range: Range for gene trait mutations
+            min_energy: Minimum allowed energy value
+            max_energy: Maximum allowed energy value
+            min_mass: Minimum allowed mass value
+            max_mass: Maximum allowed mass value
+            min_velocity: Minimum allowed velocity value
+            max_velocity: Maximum allowed velocity value
+            min_perception: Minimum allowed perception range
+            max_perception: Maximum allowed perception range
+            min_reproduction: Minimum allowed reproduction rate
+            max_reproduction: Maximum allowed reproduction rate
+            min_synergy: Minimum allowed synergy affinity
+            max_synergy: Maximum allowed synergy affinity
+            min_colony: Minimum allowed colony factor
+            max_colony: Maximum allowed colony factor
+            min_drift: Maximum allowed drift sensitivity
+            max_drift: Maximum allowed drift sensitivity
+            min_energy_efficiency: Minimum allowed energy efficiency
+            max_energy_efficiency: Maximum allowed energy efficiency
         """
         # Store metadata
-        self.type_id: int = type_id  # Unique ID for the cellular type
-        self.color: Tuple[int, int, int] = color  # RGB color for rendering
-        self.mass_based: bool = (
-            mass is not None
-        )  # Flag indicating if type is mass-based
+        self.type_id: int = type_id
+        self.color: ColorRGB = color
+        self.mass_based: bool = mass is not None
+
+        # Default gene traits if none provided
+        if gene_traits is None:
+            gene_traits = [
+                "speed_factor",
+                "interaction_strength",
+                "perception_range",
+                "reproduction_rate",
+                "synergy_affinity",
+                "colony_factor",
+                "drift_sensitivity",
+            ]
 
         # Store parameter bounds
-        self.min_energy = min_energy
-        self.max_energy = max_energy
-        self.min_mass = min_mass
-        self.max_mass = max_mass
-        self.min_velocity = min_velocity
-        self.max_velocity = max_velocity
-        self.min_perception = min_perception
-        self.max_perception = max_perception
-        self.min_reproduction = min_reproduction
-        self.max_reproduction = max_reproduction
-        self.min_synergy = min_synergy
-        self.max_synergy = max_synergy
-        self.min_colony = min_colony
-        self.max_colony = max_colony
-        self.min_drift = min_drift
-        self.max_drift = max_drift
-        self.min_energy_efficiency = min_energy_efficiency
-        self.max_energy_efficiency = max_energy_efficiency
+        self.min_energy: float = min_energy
+        self.max_energy: float = max_energy
+        self.min_mass: float = min_mass
+        self.max_mass: float = max_mass
+        self.min_velocity: float = min_velocity
+        self.max_velocity: float = max_velocity
+        self.min_perception: float = min_perception
+        self.max_perception: float = max_perception
+        self.min_reproduction: float = min_reproduction
+        self.max_reproduction: float = max_reproduction
+        self.min_synergy: float = min_synergy
+        self.max_synergy: float = max_synergy
+        self.min_colony: float = min_colony
+        self.max_colony: float = max_colony
+        self.min_drift: float = min_drift
+        self.max_drift: float = max_drift
+        self.min_energy_efficiency: float = min_energy_efficiency
+        self.max_energy_efficiency: float = max_energy_efficiency
 
         # Initialize cellular component positions randomly within the window
-        coords = random_xy(
-            window_width, window_height, n_particles
-        )  # Generate random (x,y) positions
-        self.x: np.ndarray = coords[:, 0]  # X positions as float array
-        self.y: np.ndarray = coords[:, 1]  # Y positions as float array
+        coords: FloatArray = random_xy(window_width, window_height, n_particles)
+        self.x: FloatArray = coords[:, 0]
+        self.y: FloatArray = coords[:, 1]
 
         # Initialize energy efficiency trait
         if energy_efficiency is None:
             # Randomly initialize energy efficiency within the defined range
-            self.energy_efficiency: np.ndarray = np.random.uniform(
+            self.energy_efficiency: FloatArray = np.random.uniform(
                 self.min_energy_efficiency, self.max_energy_efficiency, n_particles
-            )
+            ).astype(np.float64)
         else:
             # Set a fixed energy efficiency if provided
-            self.energy_efficiency: np.ndarray = np.full(
-                n_particles, energy_efficiency, dtype=float
+            self.energy_efficiency = np.full(
+                n_particles, energy_efficiency, dtype=np.float64
             )
 
-        # Calculate velocity scaling based on energy efficiency and speed factor
-        velocity_scaling = (
-            base_velocity_scale / self.energy_efficiency
-        )  # Higher efficiency -> lower speed
+        # Calculate velocity scaling based on energy efficiency to prevent division by zero
+        velocity_scaling: FloatArray = np.zeros(n_particles, dtype=np.float64)
+        nonzero_mask = self.energy_efficiency != 0
+        velocity_scaling[nonzero_mask] = (
+            base_velocity_scale / self.energy_efficiency[nonzero_mask]
+        )
+        velocity_scaling[~nonzero_mask] = base_velocity_scale
 
         # Initialize cellular component velocities with random values scaled by velocity_scaling
-        self.vx: np.ndarray = np.clip(
+        self.vx: FloatArray = np.clip(
             np.random.uniform(-0.5, 0.5, n_particles) * velocity_scaling,
             self.min_velocity,
             self.max_velocity,
-        ).astype(
-            float
-        )  # X velocities
-        self.vy: np.ndarray = np.clip(
+        ).astype(np.float64)
+
+        self.vy: FloatArray = np.clip(
             np.random.uniform(-0.5, 0.5, n_particles) * velocity_scaling,
             self.min_velocity,
             self.max_velocity,
-        ).astype(
-            float
-        )  # Y velocities
+        ).astype(np.float64)
 
         # Initialize energy levels for all cellular components
-        self.energy: np.ndarray = np.clip(
-            np.full(n_particles, initial_energy, dtype=float),
+        self.energy: FloatArray = np.clip(
+            np.full(n_particles, initial_energy, dtype=np.float64),
             self.min_energy,
             self.max_energy,
-        )  # Energy levels
+        )
 
         # Initialize mass if type is mass-based
         if self.mass_based:
             if mass is None or mass <= 0.0:
-                # Mass must be positive for mass-based types
                 raise ValueError("Mass must be positive for mass-based cellular types.")
-            self.mass: np.ndarray = np.clip(
-                np.full(n_particles, mass, dtype=float), self.min_mass, self.max_mass
-            )  # Mass values
+            self.mass: Optional[FloatArray] = np.clip(
+                np.full(n_particles, mass, dtype=np.float64),
+                self.min_mass,
+                self.max_mass,
+            )
         else:
-            self.mass = None  # Mass is None for massless types
+            # Explicitly set to None for non-mass-based types
+            self.mass = None
 
         # Initialize alive status and age for cellular components
-        self.alive: np.ndarray = np.ones(
-            n_particles, dtype=bool
-        )  # All components start as alive
-        self.age: np.ndarray = np.zeros(n_particles, dtype=float)  # Initial age is 0
-        self.max_age: float = max_age  # Maximum age before death
+        self.alive: BoolArray = np.ones(n_particles, dtype=bool)
+        self.age: FloatArray = np.zeros(n_particles, dtype=np.float64)
+        self.max_age: float = max_age
 
         # Initialize gene traits
-        # Genes influence behaviors and can mutate during reproduction
-        self.speed_factor: np.ndarray = np.random.uniform(
+        self.speed_factor: FloatArray = np.random.uniform(0.5, 1.5, n_particles).astype(
+            np.float64
+        )
+        self.interaction_strength: FloatArray = np.random.uniform(
             0.5, 1.5, n_particles
-        )  # Speed scaling factors
-        self.interaction_strength: np.ndarray = np.random.uniform(
-            0.5, 1.5, n_particles
-        )  # Interaction force scaling factors
-        self.perception_range: np.ndarray = np.clip(
+        ).astype(np.float64)
+        self.perception_range: FloatArray = np.clip(
             np.random.uniform(50.0, 150.0, n_particles),
             self.min_perception,
             self.max_perception,
-        )  # Perception ranges for interactions
-        self.reproduction_rate: np.ndarray = np.clip(
+        ).astype(np.float64)
+        self.reproduction_rate: FloatArray = np.clip(
             np.random.uniform(0.1, 0.5, n_particles),
             self.min_reproduction,
             self.max_reproduction,
-        )  # Reproduction rates
-        self.synergy_affinity: np.ndarray = np.clip(
-            np.random.uniform(0.5, 1.5, n_particles), self.min_synergy, self.max_synergy
-        )  # Synergy affinity factors
-        self.colony_factor: np.ndarray = np.clip(
-            np.random.uniform(0.0, 1.0, n_particles), self.min_colony, self.max_colony
-        )  # Colony formation factors
-        self.drift_sensitivity: np.ndarray = np.clip(
+        ).astype(np.float64)
+        self.synergy_affinity: FloatArray = np.clip(
+            np.random.uniform(0.5, 1.5, n_particles),
+            self.min_synergy,
+            self.max_synergy,
+        ).astype(np.float64)
+        self.colony_factor: FloatArray = np.clip(
+            np.random.uniform(0.0, 1.0, n_particles),
+            self.min_colony,
+            self.max_colony,
+        ).astype(np.float64)
+        self.drift_sensitivity: FloatArray = np.clip(
             np.random.uniform(0.5, 1.5, n_particles), self.min_drift, self.max_drift
-        )  # Evolutionary drift sensitivity
+        ).astype(np.float64)
 
         # Gene mutation parameters
-        self.gene_mutation_rate: float = gene_mutation_rate  # Mutation rate for genes
-        self.gene_mutation_range: Tuple[float, float] = (
-            gene_mutation_range  # Mutation range for genes
+        self.gene_mutation_rate: float = gene_mutation_rate
+        self.gene_mutation_range: Range = gene_mutation_range
+
+        # Speciation and lineage tracking
+        self.species_id: IntArray = np.full(n_particles, type_id, dtype=np.int_)
+        self.parent_id: IntArray = np.full(n_particles, -1, dtype=np.int_)
+        self.colony_id: IntArray = np.full(n_particles, -1, dtype=np.int_)
+        self.colony_role: IntArray = np.zeros(n_particles, dtype=np.int_)
+
+        # Initialize synergy connection matrix
+        self.synergy_connections: BoolArray = np.zeros(
+            (n_particles, n_particles), dtype=bool
         )
 
-        # Speciation parameters
-        self.species_id: np.ndarray = np.full(
-            n_particles, type_id, dtype=int
-        )  # Species IDs, initially same as type_id
-
-        # Lineage tracking
-        self.parent_id: np.ndarray = np.full(
-            n_particles, -1, dtype=int
-        )  # Parent IDs (-1 indicates no parent)
-
-        # Colony tracking
-        self.colony_id: np.ndarray = np.full(
-            n_particles, -1, dtype=int
-        )  # Colony IDs (-1 indicates no colony)
-        self.colony_role: np.ndarray = np.zeros(
-            n_particles, dtype=int
-        )  # Colony roles (0=none, 1=leader, 2=member)
-
-        # Synergy network
-        self.synergy_connections: np.ndarray = np.zeros(
-            (n_particles, n_particles), dtype=bool
-        )  # Synergy connection matrix
-
         # Adaptation metrics
-        self.fitness_score: np.ndarray = np.zeros(
-            n_particles, dtype=float
-        )  # Individual fitness scores
-        self.generation: np.ndarray = np.zeros(
-            n_particles, dtype=int
-        )  # Generation counter
+        self.fitness_score: FloatArray = np.zeros(n_particles, dtype=np.float64)
+        self.generation: IntArray = np.zeros(n_particles, dtype=np.int_)
         self.mutation_history: List[List[Tuple[str, float]]] = [
             [] for _ in range(n_particles)
-        ]  # Track mutations
+        ]
 
-    def is_alive_mask(self) -> np.ndarray:
-        """
-        Compute a mask of alive cellular components based on various conditions:
-        - Energy must be greater than 0.
-        - If mass-based, mass must be greater than 0.
-        - Age must be less than max_age.
-        - Alive flag must be True.
+    def is_alive_mask(self) -> BoolArray:
+        """Compute a mask of alive cellular components based on conditions.
+
+        Determines which components are alive based on energy, age, and mass
+        constraints, vectorizing the computation for efficiency.
+
         Returns:
-        --------
-        np.ndarray
-            Boolean array indicating alive status of cellular components.
+            BoolArray: Boolean array indicating alive status of components
         """
         # Basic alive conditions: energy > 0, age < max_age, and alive flag is True
-        mask = self.alive & (self.energy > 0.0) & (self.age < self.max_age)
+        mask: BoolArray = self.alive & (self.energy > 0.0) & (self.age < self.max_age)
+
         if self.mass_based and self.mass is not None:
             # Additional condition for mass-based types: mass > 0
             mask = mask & (self.mass > 0.0)
-        return mask  # Return the computed alive mask
+
+        return mask
 
     def update_alive(self) -> None:
-        """
-        Update the alive status of cellular components based on current conditions.
-        """
-        self.alive = (
-            self.is_alive_mask()
-        )  # Update alive mask based on current conditions
+        """Update the alive status of cellular components based on current conditions."""
+        self.alive = self.is_alive_mask()
 
     def age_components(self) -> None:
+        """Increment the age of each cellular component.
+
+        Applies aging to all components and ensures energy values remain valid.
         """
-        Increment the age of each cellular component and apply a minimal energy drain due to aging.
-        """
-        self.age += 1.0  # Increment age by 1 unit per frame
-        self.energy = np.clip(
-            self.energy, 0.0, None
-        )  # Ensure energy doesn't go below 0
+        self.age += 1.0
+        self.energy = np.clip(self.energy, 0.0, None)
 
     def update_states(self) -> None:
+        """Update the state of cellular components.
+
+        Currently a placeholder for future state management functionality.
         """
-        Update the state of cellular components if needed.
-        Currently a placeholder for future expansions (e.g., 'active', 'inactive').
-        """
-        pass  # No state arrays are stored; this can be expanded as needed
+        pass
 
     def remove_dead(self, config: SimulationConfig) -> None:
-        """
-        Remove dead cellular components from the type to keep data arrays compact.
-        Filters all component attributes based on the alive mask.
-        Additionally, transfers energy from components dying of old age to their nearest three living neighbors.
+        """Remove dead cellular components and redistribute their energy.
 
-        Parameters:
-        -----------
-        config : SimulationConfig
-            Configuration parameters for the simulation, needed for predation_range.
+        Performs energy transfer from components dying of old age to their
+        nearest living neighbors, then filters all component attributes to
+        keep only living components.
+
+        Args:
+            config: Simulation configuration parameters
         """
         # Validate array sizes first to prevent index mismatches
-        array_size = self.x.size
-        if not all(
-            getattr(self, attr).size == array_size
-            for attr in [
-                "y",
-                "vx",
-                "vy",
-                "energy",
-                "alive",
-                "age",
-                "energy_efficiency",
-                "speed_factor",
-                "interaction_strength",
-                "perception_range",
-                "reproduction_rate",
-                "synergy_affinity",
-                "colony_factor",
-                "drift_sensitivity",
-                "species_id",
-                "parent_id",
-            ]
-        ):
-            # If arrays are mismatched, synchronize them to smallest size
-            min_size = min(
-                getattr(self, attr).size
-                for attr in [
-                    "x",
-                    "y",
-                    "vx",
-                    "vy",
-                    "energy",
-                    "alive",
-                    "age",
-                    "energy_efficiency",
-                    "speed_factor",
-                    "interaction_strength",
-                    "perception_range",
-                    "reproduction_rate",
-                    "synergy_affinity",
-                    "colony_factor",
-                    "drift_sensitivity",
-                    "species_id",
-                    "parent_id",
-                ]
-            )
-            for attr in [
-                "x",
-                "y",
-                "vx",
-                "vy",
-                "energy",
-                "alive",
-                "age",
-                "energy_efficiency",
-                "speed_factor",
-                "interaction_strength",
-                "perception_range",
-                "reproduction_rate",
-                "synergy_affinity",
-                "colony_factor",
-                "drift_sensitivity",
-                "species_id",
-                "parent_id",
-            ]:
-                setattr(self, attr, getattr(self, attr)[:min_size])
-            if self.mass_based and self.mass is not None:
-                self.mass = self.mass[:min_size]
+        self._synchronize_arrays()
 
         # Get current alive status
-        alive_mask = self.is_alive_mask()
+        alive_mask: BoolArray = self.is_alive_mask()
 
-        # Identify components dying of old age
-        dead_due_to_age = (~alive_mask) & (self.age >= self.max_age)
-
-        if np.any(dead_due_to_age):
-            # Find indices of alive and dead-by-age components
-            alive_indices = np.where(alive_mask)[0]
-            dead_age_indices = np.where(dead_due_to_age)[0]
-
-            if alive_indices.size > 0:
-                # Build positions array for KD-Tree
-                alive_positions = np.column_stack(
-                    (self.x[alive_indices], self.y[alive_indices])
-                )
-                tree = cKDTree(alive_positions)
-
-                # Process energy transfer in batches for better performance
-                batch_size = 1000
-                for i in range(0, len(dead_age_indices), batch_size):
-                    batch_indices = dead_age_indices[i : i + batch_size]
-                    dead_positions = np.column_stack(
-                        (self.x[batch_indices], self.y[batch_indices])
-                    )
-                    dead_energies = self.energy[batch_indices]
-
-                    # Find nearest neighbors for all dead components in batch
-                    distances, neighbors = tree.query(
-                        dead_positions, k=3, distance_upper_bound=config.predation_range
-                    )
-
-                    # Process energy transfer
-                    valid_mask = distances < config.predation_range
-                    for j, (dist_row, neighbor_row, dead_energy) in enumerate(
-                        zip(distances, neighbors, dead_energies)
-                    ):
-                        valid = valid_mask[j]
-                        if np.any(valid):
-                            valid_neighbors = neighbor_row[valid]
-                            energy_share = dead_energy / np.sum(valid)
-                            self.energy[alive_indices[valid_neighbors]] += energy_share
-                            self.energy[batch_indices[j]] = 0.0
+        # Process energy transfer for components dying of old age
+        self._process_energy_transfer(alive_mask, config)
 
         # Apply filtering to all arrays
-        arrays_to_filter = [
+        self._filter_arrays(alive_mask)
+
+    def _synchronize_arrays(self) -> None:
+        """Ensure all component arrays have matching dimensions.
+
+        Synchronizes the size of all attribute arrays to prevent index errors.
+        """
+        array_attributes: List[str] = [
             "x",
             "y",
             "vx",
@@ -504,22 +437,214 @@ class CellularTypeData:
             "drift_sensitivity",
             "species_id",
             "parent_id",
+            "colony_id",
+            "colony_role",
+            "fitness_score",
+            "generation",
         ]
 
+        # Find the smallest valid size
+        sizes: List[int] = []
+        for attr in array_attributes:
+            if hasattr(self, attr):
+                arr = getattr(self, attr)
+                if arr is not None and hasattr(arr, "size"):
+                    sizes.append(arr.size)
+
+        if not sizes:
+            return  # No arrays to synchronize
+
+        min_size: int = min(sizes)
+
+        # Trim all arrays to the smallest size
+        for attr in array_attributes:
+            if hasattr(self, attr):
+                arr = getattr(self, attr)
+                if arr is not None and hasattr(arr, "size"):
+                    if arr.size > min_size:
+                        setattr(self, attr, arr[:min_size])
+
+        # Handle mass array separately
+        if self.mass_based and self.mass is not None and self.mass.size > min_size:
+            self.mass = self.mass[:min_size]
+
+    def _process_energy_transfer(
+        self, alive_mask: BoolArray, config: SimulationConfig
+    ) -> None:
+        """Transfer energy from dying components to nearby living components.
+
+        Args:
+            alive_mask: Boolean array indicating which components are alive
+            config: Simulation configuration parameters
+        """
+        # Identify components dying of old age
+        dead_due_to_age: BoolArray = (~alive_mask) & (self.age >= self.max_age)
+
+        if not np.any(dead_due_to_age):
+            return  # No components dying of old age
+
+        # Find indices of alive and dead-by-age components
+        alive_indices: IntArray = np.where(alive_mask)[0]
+        dead_age_indices: IntArray = np.where(dead_due_to_age)[0]
+
+        if alive_indices.size == 0:
+            return  # No alive components to receive energy
+
+        # Build positions array for KD-Tree
+        alive_positions: FloatArray = np.column_stack(
+            (self.x[alive_indices], self.y[alive_indices])
+        )
+
+        # Create KD-Tree with our properly typed wrapper
+        tree: KDTree = KDTree(alive_positions)
+
+        # Process energy transfer in batches for performance
+        batch_size: int = min(1000, dead_age_indices.size)
+        for i in range(0, dead_age_indices.size, batch_size):
+            batch_indices: IntArray = dead_age_indices[i : i + batch_size]
+            dead_positions: FloatArray = np.column_stack(
+                (self.x[batch_indices], self.y[batch_indices])
+            )
+            dead_energies: FloatArray = self.energy[batch_indices]
+
+            # Find nearest neighbors for all dead components in batch
+            distances: FloatArray
+            neighbors: IntArray
+            distances, neighbors = tree.query(
+                dead_positions,
+                k=min(3, alive_indices.size),  # Don't request more neighbors than exist
+                distance_upper_bound=config.predation_range,
+            )
+
+            # Process energy transfer for each dead component
+            for j in range(len(batch_indices)):
+                # Extract data for the current dead component
+                dead_idx_distances = distances[j]
+                neighbor_indices = neighbors[j]
+                dead_energy = dead_energies[j]
+
+                # Identify valid neighbors (within range and not INFINITY)
+                valid_mask: BoolArray = (
+                    dead_idx_distances < config.predation_range
+                ) & (dead_idx_distances < np.inf)
+
+                if np.any(valid_mask):
+                    # Get indices of valid neighbors
+                    valid_neighbors: IntArray = neighbor_indices[valid_mask]
+
+                    # Calculate energy share for each valid neighbor
+                    energy_share: float = float(dead_energy / np.sum(valid_mask))
+
+                    # Distribute energy to valid neighbors
+                    for neighbor_idx in valid_neighbors:
+                        # Avoid indexing beyond array bounds
+                        if neighbor_idx < len(alive_indices):
+                            alive_idx = alive_indices[neighbor_idx]
+                            if alive_idx < len(self.energy):
+                                self.energy[alive_idx] += energy_share
+
+                    # Set energy of dead component to zero
+                    self.energy[batch_indices[j]] = 0.0
+
+    def _filter_arrays(self, alive_mask: BoolArray) -> None:
+        """Filter all component arrays to keep only alive components.
+
+        Args:
+            alive_mask: Boolean array indicating which components are alive
+        """
+        # Create a list of all array attributes
+        arrays_to_filter: List[str] = [
+            "x",
+            "y",
+            "vx",
+            "vy",
+            "energy",
+            "alive",
+            "age",
+            "energy_efficiency",
+            "speed_factor",
+            "interaction_strength",
+            "perception_range",
+            "reproduction_rate",
+            "synergy_affinity",
+            "colony_factor",
+            "drift_sensitivity",
+            "species_id",
+            "parent_id",
+            "colony_id",
+            "colony_role",
+            "fitness_score",
+            "generation",
+        ]
+
+        # Filter each array to keep only alive components
         for attr in arrays_to_filter:
-            try:
-                setattr(self, attr, getattr(self, attr)[alive_mask])
-            except IndexError:
-                # If error occurs, resize array to match alive_mask size
-                current_array = getattr(self, attr)
-                setattr(self, attr, current_array[: len(alive_mask)][alive_mask])
+            if hasattr(self, attr):
+                try:
+                    current = getattr(self, attr)
+                    if current is not None and hasattr(current, "shape"):
+                        filtered = current[alive_mask]
+                        setattr(self, attr, filtered)
+                except IndexError:
+                    # Handle size mismatch by trimming
+                    current = getattr(self, attr)
+                    if current is not None and hasattr(current, "shape"):
+                        if len(current) > len(alive_mask):
+                            trimmed = current[: len(alive_mask)]
+                            filtered = trimmed[alive_mask]
+                            setattr(self, attr, filtered)
 
         # Handle mass array separately if it exists
         if self.mass_based and self.mass is not None:
             try:
                 self.mass = self.mass[alive_mask]
             except IndexError:
-                self.mass = self.mass[: len(alive_mask)][alive_mask]
+                if len(self.mass) > len(alive_mask):
+                    self.mass = self.mass[: len(alive_mask)][alive_mask]
+
+        # Filter mutation history list
+        if len(self.mutation_history) > 0:
+            # Get indices as numpy array, then convert to a properly typed Python list
+            indices_array: IntArray = np.where(alive_mask)[0]
+            alive_indices: List[int] = [
+                int(idx) for idx in indices_array
+            ]  # Ensure consistent List[int] type
+            if alive_indices:  # Check if list is non-empty
+                new_history: List[List[Tuple[str, float]]] = []
+                for i in alive_indices:
+                    if i < len(self.mutation_history):
+                        new_history.append(self.mutation_history[i])
+                self.mutation_history = new_history
+            else:
+                self.mutation_history = []
+
+        # Resize synergy connections matrix
+        if (
+            hasattr(self, "synergy_connections")
+            and self.synergy_connections.shape[0] > 0
+        ):
+            alive_count: int = int(np.sum(alive_mask))  # Ensure this is an int
+            new_connections: BoolArray = np.zeros(
+                (alive_count, alive_count), dtype=bool
+            )
+
+            if alive_count > 0:
+                # Extract the submatrix for living components
+                alive_indices_array: IntArray = np.where(alive_mask)[0]
+                alive_indices = [
+                    int(idx) for idx in alive_indices_array
+                ]  # Convert to List[int]
+                for i, a_idx in enumerate(alive_indices):
+                    for j, b_idx in enumerate(alive_indices):
+                        if (
+                            a_idx < self.synergy_connections.shape[0]
+                            and b_idx < self.synergy_connections.shape[1]
+                        ):
+                            new_connections[i, j] = self.synergy_connections[
+                                a_idx, b_idx
+                            ]
+
+            self.synergy_connections = new_connections
 
     def add_component(
         self,
@@ -541,89 +666,119 @@ class CellularTypeData:
         parent_id_val: int,
         max_age: float,
     ) -> None:
-        """
-        Add a new cellular component (e.g., offspring) to this cellular type.
+        """Add a new cellular component to this cellular type.
 
-        Parameters:
-        -----------
-        x : float
-            X-coordinate of the new component.
-        y : float
-            Y-coordinate of the new component.
-        vx : float
-            X-component of the new component's velocity.
-        vy : float
-            Y-component of the new component's velocity.
-        energy : float
-            Initial energy of the new component.
-        mass_val : Optional[float]
-            Mass of the new component if type is mass-based; else None.
-        energy_efficiency_val : float
-            Energy efficiency trait of the new component.
-        speed_factor_val : float
-            Speed factor gene trait of the new component.
-        interaction_strength_val : float
-            Interaction strength gene trait of the new component.
-        perception_range_val : float
-            Perception range gene trait of the new component.
-        reproduction_rate_val : float
-            Reproduction rate gene trait of the new component.
-        synergy_affinity_val : float
-            Synergy affinity gene trait of the new component.
-        colony_factor_val : float
-            Colony formation gene trait of the new component.
-        drift_sensitivity_val : float
-            Drift sensitivity gene trait of the new component.
-        species_id_val : int
-            Species ID of the new component.
-        parent_id_val : int
-            Parent ID of the new component.
-        max_age : float
-            Maximum age for the new component.
+        Appends a new component with specified attributes to the cellular type,
+        extending all relevant array attributes.
+
+        Args:
+            x: X-coordinate of the new component
+            y: Y-coordinate of the new component
+            vx: X-component of the new component's velocity
+            vy: Y-component of the new component's velocity
+            energy: Initial energy of the new component
+            mass_val: Mass of the new component if type is mass-based; else None
+            energy_efficiency_val: Energy efficiency trait of the new component
+            speed_factor_val: Speed factor gene trait of the new component
+            interaction_strength_val: Interaction strength gene trait of the new component
+            perception_range_val: Perception range gene trait of the new component
+            reproduction_rate_val: Reproduction rate gene trait of the new component
+            synergy_affinity_val: Synergy affinity gene trait of the new component
+            colony_factor_val: Colony formation gene trait of the new component
+            drift_sensitivity_val: Drift sensitivity gene trait of the new component
+            species_id_val: Species ID of the new component
+            parent_id_val: Parent ID of the new component
+            max_age: Maximum age for the new component
         """
         # Append new component's attributes using NumPy's concatenate for efficiency
-        self.x = np.concatenate((self.x, [x]))  # Append new x position
-        self.y = np.concatenate((self.y, [y]))  # Append new y position
-        self.vx = np.concatenate((self.vx, [vx]))  # Append new x velocity
-        self.vy = np.concatenate((self.vy, [vy]))  # Append new y velocity
-        self.energy = np.concatenate((self.energy, [energy]))  # Append new energy level
-        self.alive = np.concatenate((self.alive, [True]))  # Set alive status to True
-        self.age = np.concatenate(
-            (self.age, [0.0])
-        )  # Initialize age to 0 for new component
+        self.x = np.concatenate((self.x, np.array([x], dtype=np.float64)))
+        self.y = np.concatenate((self.y, np.array([y], dtype=np.float64)))
+        self.vx = np.concatenate((self.vx, np.array([vx], dtype=np.float64)))
+        self.vy = np.concatenate((self.vy, np.array([vy], dtype=np.float64)))
+        self.energy = np.concatenate(
+            (self.energy, np.array([energy], dtype=np.float64))
+        )
+        self.alive = np.concatenate((self.alive, np.array([True], dtype=bool)))
+        self.age = np.concatenate((self.age, np.array([0.0], dtype=np.float64)))
         self.energy_efficiency = np.concatenate(
-            (self.energy_efficiency, [energy_efficiency_val])
-        )  # Append energy efficiency
+            (
+                self.energy_efficiency,
+                np.array([energy_efficiency_val], dtype=np.float64),
+            )
+        )
         self.speed_factor = np.concatenate(
-            (self.speed_factor, [speed_factor_val])
-        )  # Append speed factor
+            (self.speed_factor, np.array([speed_factor_val], dtype=np.float64))
+        )
         self.interaction_strength = np.concatenate(
-            (self.interaction_strength, [interaction_strength_val])
-        )  # Append interaction strength
+            (
+                self.interaction_strength,
+                np.array([interaction_strength_val], dtype=np.float64),
+            )
+        )
         self.perception_range = np.concatenate(
-            (self.perception_range, [perception_range_val])
-        )  # Append perception range
+            (self.perception_range, np.array([perception_range_val], dtype=np.float64))
+        )
         self.reproduction_rate = np.concatenate(
-            (self.reproduction_rate, [reproduction_rate_val])
-        )  # Append reproduction rate
+            (
+                self.reproduction_rate,
+                np.array([reproduction_rate_val], dtype=np.float64),
+            )
+        )
         self.synergy_affinity = np.concatenate(
-            (self.synergy_affinity, [synergy_affinity_val])
-        )  # Append synergy affinity
+            (self.synergy_affinity, np.array([synergy_affinity_val], dtype=np.float64))
+        )
         self.colony_factor = np.concatenate(
-            (self.colony_factor, [colony_factor_val])
-        )  # Append colony factor
+            (self.colony_factor, np.array([colony_factor_val], dtype=np.float64))
+        )
         self.drift_sensitivity = np.concatenate(
-            (self.drift_sensitivity, [drift_sensitivity_val])
-        )  # Append drift sensitivity
+            (
+                self.drift_sensitivity,
+                np.array([drift_sensitivity_val], dtype=np.float64),
+            )
+        )
         self.species_id = np.concatenate(
-            (self.species_id, [species_id_val])
-        )  # Append species ID
+            (self.species_id, np.array([species_id_val], dtype=np.int_))
+        )
         self.parent_id = np.concatenate(
-            (self.parent_id, [parent_id_val])
-        )  # Append parent ID
+            (self.parent_id, np.array([parent_id_val], dtype=np.int_))
+        )
 
+        # Handle mass for mass-based types
         if self.mass_based and self.mass is not None:
             if mass_val is None or mass_val <= 0.0:
                 # Ensure mass is positive; assign a small random mass if invalid
                 mass_val = max(0.1, abs(mass_val if mass_val is not None else 1.0))
-            self.mass = np.concatenate((self.mass, [mass_val]))  # Append new mass value
+            self.mass = np.concatenate(
+                (self.mass, np.array([mass_val], dtype=np.float64))
+            )
+
+        # Update mutation history list
+        self.mutation_history.append([])
+
+        # Update synergy connections matrix
+        old_size: int = self.synergy_connections.shape[0]
+        new_size: int = old_size + 1
+        new_connections: BoolArray = np.zeros((new_size, new_size), dtype=bool)
+        new_connections[:old_size, :old_size] = self.synergy_connections
+        self.synergy_connections = new_connections
+
+        # Update colony role
+        self.colony_role = np.concatenate(
+            (self.colony_role, np.array([0], dtype=np.int_))
+        )
+
+        # Update colony ID
+        self.colony_id = np.concatenate((self.colony_id, np.array([-1], dtype=np.int_)))
+
+        # Update fitness score
+        self.fitness_score = np.concatenate(
+            (self.fitness_score, np.array([0.0], dtype=np.float64))
+        )
+
+        # Update generation
+        parent_gen: int = 0
+        if parent_id_val >= 0 and parent_id_val < len(self.generation):
+            parent_gen = int(self.generation[parent_id_val])  # Ensure this is an int
+        self.generation = np.concatenate(
+            (self.generation, np.array([parent_gen + 1], dtype=np.int_))
+        )

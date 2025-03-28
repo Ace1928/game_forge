@@ -1,15 +1,62 @@
+"""Gene Particles Cellular Automata Simulation.
+
+Provides the core simulation framework for cellular automata with emergent evolution,
+interaction physics, and environmental dynamics using vectorized operations for
+maximum performance with precise static typing throughout.
+"""
+
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import DefaultDict, Dict, List, Optional, Protocol, Tuple, Union
 
 import numpy as np
 import pygame
-from gp_config import SimulationConfig
-from gp_manager import CellularTypeManager
-from gp_renderer import Renderer
-from gp_rules import InteractionRules
-from gp_types import CellularTypeData
-from gp_utility import apply_synergy, generate_vibrant_colors, give_take_interaction
-from scipy.spatial import cKDTree
+from numpy.typing import NDArray
+
+# Local imports with explicit paths
+from game_forge.src.gene_particles.gp_config import SimulationConfig
+from game_forge.src.gene_particles.gp_manager import CellularTypeManager
+from game_forge.src.gene_particles.gp_renderer import Renderer
+from game_forge.src.gene_particles.gp_rules import InteractionRules
+from game_forge.src.gene_particles.gp_types import CellularTypeData
+from game_forge.src.gene_particles.gp_utility import (
+    BoolArray,
+    FloatArray,
+    IntArray,
+    apply_synergy,
+    generate_vibrant_colors,
+    give_take_interaction,
+)
+
+
+# Protocol for pygame.display.Info() return type
+class PygameDisplayInfo(Protocol):
+    """Type protocol for pygame.display.Info() return value."""
+
+    current_w: int
+    current_h: int
+
+
+# Import scipy's KDTree with proper type handling
+try:
+    from scipy.spatial import KDTree  # type: ignore[import]
+except ImportError:
+    # Type stub for when scipy isn't available
+    class KDTree:
+        """Type stub for SciPy's KDTree spatial index."""
+
+        def __init__(self, data: NDArray[np.float64], leafsize: int = 10) -> None:
+            """Initialize KDTree with position data."""
+            # Suppress unused parameter warnings with no-op
+            _ = data, leafsize
+
+        def query_ball_point(
+            self, x: NDArray[np.float64], r: float, p: float = 2.0, eps: float = 0
+        ) -> List[List[int]]:
+            """Query for all points within distance r of x."""
+            # Suppress unused parameter warnings with no-op
+            _ = x, r, p, eps
+            return [[]]
+
 
 ###############################################################
 # Cellular Automata (Main Simulation)
@@ -18,9 +65,9 @@ from scipy.spatial import cKDTree
 
 class CellularAutomata:
     """
-    The main simulation controller implementing cellular automata dynamics.
+    Primary simulation controller implementing cellular automata dynamics.
 
-    Orchestrates all simulation aspects including initialization, frame updates,
+    Orchestrates all simulation components including initialization, frame updates,
     inter-type interactions, clustering behaviors, reproduction, and visualization.
     Manages the full lifecycle of particles with optimized vectorized operations.
 
@@ -44,20 +91,16 @@ class CellularAutomata:
         Initialize the simulation environment with specified configuration.
 
         Sets up display, managers, and initial particle population. Creates
-        cellular types with randomized properties based on configuration,
-        with mass-based physics applied to a subset of types.
-
-        Args:
             config: Configuration parameters controlling all simulation aspects
         """
         # Core system initialization
         self.config: SimulationConfig = config
         pygame.init()
 
-        # Display setup
-        display_info: pygame.display.Info = pygame.display.Info()
-        screen_width: int = display_info.current_w
-        screen_height: int = display_info.current_h
+        # Display setup with optimal performance flags
+        display_info: PygameDisplayInfo = pygame.display.Info()
+        screen_width: int = int(display_info.current_w)
+        screen_height: int = int(display_info.current_h)
         self.screen: pygame.Surface = pygame.display.set_mode(
             (screen_width, screen_height),
             pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF,
@@ -70,20 +113,23 @@ class CellularAutomata:
         self.run_flag: bool = True
 
         # Calculate screen boundaries with buffer
-        self.edge_buffer: float = 0.05 * max(screen_width, screen_height)
-        self.screen_bounds: np.ndarray = np.array(
+        self.edge_buffer: float = 0.05 * float(max(screen_width, screen_height))
+        self.screen_bounds: FloatArray = np.array(
             [
                 self.edge_buffer,  # Left bound
                 screen_width - self.edge_buffer,  # Right bound
                 self.edge_buffer,  # Top bound
                 screen_height - self.edge_buffer,  # Bottom bound
-            ]
+            ],
+            dtype=np.float64,
         )
 
-        # Generate particle type colors and physics properties
+        # Generate vibrant, visually distinct colors for particle types
         self.colors: List[Tuple[int, int, int]] = generate_vibrant_colors(
             self.config.n_cell_types
         )
+
+        # Determine which types use mass-based physics
         n_mass_types: int = int(
             self.config.mass_based_fraction * self.config.n_cell_types
         )
@@ -95,7 +141,7 @@ class CellularAutomata:
         )
 
         # Generate mass values for mass-based particle types
-        mass_values: np.ndarray = np.random.uniform(
+        mass_values: FloatArray = np.random.uniform(
             self.config.mass_range[0], self.config.mass_range[1], n_mass_types
         )
 
@@ -120,8 +166,8 @@ class CellularAutomata:
         )
         self.renderer: Renderer = Renderer(self.screen, self.config)
 
-        # Initialize species tracking
-        self.species_count: Dict[int, int] = defaultdict(int)
+        # Initialize species tracking with default value handling
+        self.species_count: DefaultDict[int, int] = defaultdict(int)
         self.update_species_count()
 
     def update_species_count(self) -> None:
@@ -129,13 +175,15 @@ class CellularAutomata:
         Update the count of unique species across all cellular types.
 
         Clears existing counts and recalculates population sizes for each
-        species ID found across all cellular types.
+        species ID found across all cellular types using vectorized operations.
+        Results are stored in the species_count dictionary for statistics
+        and rendering.
         """
         self.species_count.clear()
         for ct in self.type_manager.cellular_types:
             unique, counts = np.unique(ct.species_id, return_counts=True)
-            for species, count in zip(unique, counts):
-                self.species_count[species] += count
+            for species_id, count in zip(unique, counts):
+                self.species_count[int(species_id)] += int(count)
 
     def main_loop(self) -> None:
         """
@@ -170,7 +218,7 @@ class CellularAutomata:
             self.rules_manager.evolve_parameters(self.frame_count)
 
             # Clear the display with background color
-            self.screen.fill((69, 69, 69))
+            self.screen.fill((20, 20, 30))  # Dark blue-gray background
 
             # Apply all inter-type interactions and updates
             self.apply_all_interactions()
@@ -194,23 +242,25 @@ class CellularAutomata:
             # Prepare statistics for display
             stats: Dict[str, float] = {
                 "fps": self.clock.get_fps(),
-                "total_species": len(self.species_count),
-                "total_particles": sum(self.species_count.values()),
+                "total_species": float(len(self.species_count)),
+                "total_particles": float(sum(self.species_count.values())),
             }
 
             # Render UI elements with current statistics
             self.renderer.render(stats)
             pygame.display.flip()
 
-            # Limit frame rate and get current FPS
-            current_fps: float = self.clock.tick(120)
-            self.display_fps(self.screen, current_fps)
+            # Limit frame rate and get time delta
+            delta_ms: float = self.clock.tick(120)  # Target 120 FPS
 
-            # Adaptive population control based on performance
+            # Apply adaptive population control based on performance
             if self.frame_count % 10 == 0:
                 if (
-                    any(ct.x.size > 50 for ct in self.type_manager.cellular_types)
-                    or current_fps <= 60
+                    any(
+                        ct.x.size > self.config.max_particles_per_type * 0.8
+                        for ct in self.type_manager.cellular_types
+                    )
+                    or delta_ms > 16.67  # Below 60 FPS
                 ):
                     self.cull_oldest_particles()
 
@@ -234,13 +284,18 @@ class CellularAutomata:
         Process all type-to-type interactions defined in the rules matrix.
 
         Iterates through all interaction rule parameters and applies them
-        between the corresponding cellular type pairs.
+        between the corresponding cellular type pairs using vectorized operations
+        for maximum performance.
         """
         for i, j, params in self.rules_manager.rules:
-            self.apply_interaction_between_types(i, j, params)
+            # Convert raw params to properly typed dictionary
+            typed_params: Dict[str, Union[float, bool, FloatArray]] = {
+                k: v for k, v in params.items()
+            }
+            self.apply_interaction_between_types(i, j, typed_params)
 
     def apply_interaction_between_types(
-        self, i: int, j: int, params: Dict[str, Union[float, bool, np.ndarray]]
+        self, i: int, j: int, params: Dict[str, Union[float, bool, FloatArray]]
     ) -> None:
         """
         Apply physics, energy transfers, and synergy between two cellular types.
@@ -257,8 +312,8 @@ class CellularAutomata:
         # Retrieve cellular types and their interaction properties
         ct_i: CellularTypeData = self.type_manager.get_cellular_type_by_id(i)
         ct_j: CellularTypeData = self.type_manager.get_cellular_type_by_id(j)
-        synergy_factor: float = self.rules_manager.synergy_matrix[i, j]
-        is_giver: bool = self.rules_manager.give_take_matrix[i, j]
+        synergy_factor: float = float(self.rules_manager.synergy_matrix[i, j])
+        is_giver: bool = bool(self.rules_manager.give_take_matrix[i, j])
 
         # Skip if either type has no particles
         n_i: int = ct_i.x.size
@@ -267,7 +322,8 @@ class CellularAutomata:
             return
 
         # Configure gravity parameters for mass-based types
-        if params.get("use_gravity", False):
+        use_gravity = params.get("use_gravity", False)
+        if isinstance(use_gravity, bool) and use_gravity:
             if (
                 ct_i.mass_based
                 and ct_i.mass is not None
@@ -280,70 +336,96 @@ class CellularAutomata:
                 params["use_gravity"] = False
 
         # Calculate pairwise distances using vectorized operations
-        dx: np.ndarray = ct_i.x[:, np.newaxis] - ct_j.x
-        dy: np.ndarray = ct_i.y[:, np.newaxis] - ct_j.y
-        dist_sq: np.ndarray = dx * dx + dy * dy
+        dx: FloatArray = ct_i.x[:, np.newaxis] - ct_j.x
+        dy: FloatArray = ct_i.y[:, np.newaxis] - ct_j.y
+        dist_sq: FloatArray = dx * dx + dy * dy
 
         # Create interaction mask for particles within range
-        within_range: np.ndarray = (dist_sq > 0.0) & (
-            dist_sq <= params["max_dist"] ** 2
+        max_dist_value = params.get("max_dist", 0.0)
+        max_dist = (
+            float(max_dist_value) if not isinstance(max_dist_value, bool) else 100.0
         )
+        within_range: BoolArray = (dist_sq > 0.0) & (dist_sq <= max_dist**2)
 
         # Get indices of interacting particle pairs
-        indices: Tuple[np.ndarray, np.ndarray] = np.where(within_range)
-        if len(indices[0]) == 0:
+        indices_tuple = np.where(within_range)
+        if len(indices_tuple) != 2 or len(indices_tuple[0]) == 0:
             return
 
+        indices: Tuple[IntArray, IntArray] = (
+            indices_tuple[0].astype(np.int_),
+            indices_tuple[1].astype(np.int_),
+        )
+
         # Calculate distances for interacting particles
-        dist: np.ndarray = np.sqrt(dist_sq[indices])
+        dist: FloatArray = np.sqrt(dist_sq[indices])
 
         # Initialize force components
-        fx: np.ndarray = np.zeros_like(dist)
-        fy: np.ndarray = np.zeros_like(dist)
+        fx: FloatArray = np.zeros_like(dist)
+        fy: FloatArray = np.zeros_like(dist)
 
         # Calculate potential-based forces
-        if params.get("use_potential", True):
-            pot_strength: float = params.get("potential_strength", 1.0)
-            F_pot: np.ndarray = pot_strength / dist
+        use_potential = params.get("use_potential", True)
+        if isinstance(use_potential, bool) and use_potential:
+            pot_strength_value = params.get("potential_strength", 1.0)
+            pot_strength = (
+                float(pot_strength_value)
+                if not isinstance(pot_strength_value, bool)
+                else 1.0
+            )
+            F_pot: FloatArray = (pot_strength / dist).astype(np.float64)
             fx += F_pot * (dx[indices] / dist)
             fy += F_pot * (dy[indices] / dist)
 
         # Calculate gravitational forces if applicable
         if params.get("use_gravity", False):
-            gravity_factor: float = params.get("gravity_factor", 1.0)
-            F_grav: np.ndarray = (
-                gravity_factor
-                * (params["m_a"][indices[0]] * params["m_b"][indices[1]])
-                / dist_sq[indices]
+            gravity_factor_value = params.get("gravity_factor", 1.0)
+            gravity_factor = (
+                float(gravity_factor_value)
+                if not isinstance(gravity_factor_value, bool)
+                else 1.0
             )
-            fx += F_grav * (dx[indices] / dist)
-            fy += F_grav * (dy[indices] / dist)
 
-        # Apply calculated forces to velocities
+            m_a = params.get("m_a")
+            m_b = params.get("m_b")
+
+            # Check that mass arrays are valid NumPy arrays
+            if isinstance(m_a, np.ndarray) and isinstance(m_b, np.ndarray):
+                # Calculate gravitational force between particles (G * m1 * m2 / r²)
+                F_grav: FloatArray = (
+                    gravity_factor
+                    * (m_a[indices[0]] * m_b[indices[1]])
+                    / dist_sq[indices]
+                ).astype(np.float64)
+                # Gravity pulls toward, not away from (negative direction)
+                fx -= F_grav * (dx[indices] / dist)
+                fy -= F_grav * (dy[indices] / dist)
+
+        # Apply calculated forces to velocities using atomic add
         np.add.at(ct_i.vx, indices[0], fx)
         np.add.at(ct_i.vy, indices[0], fy)
 
         # Handle predator-prey energy transfers (give-take)
         if is_giver:
             # Find pairs within predation range
-            give_take_within: np.ndarray = (
+            give_take_within: BoolArray = (
                 dist_sq[indices] <= self.config.predation_range**2
             )
-            give_take_indices: Tuple[np.ndarray, np.ndarray] = (
+            give_take_indices: Tuple[IntArray, IntArray] = (
                 indices[0][give_take_within],
                 indices[1][give_take_within],
             )
 
             if give_take_indices[0].size > 0:
                 # Extract energy and mass values for transfer
-                giver_energy: np.ndarray = ct_i.energy[give_take_indices[0]]
-                receiver_energy: np.ndarray = ct_j.energy[give_take_indices[1]]
-                giver_mass: Optional[np.ndarray] = (
+                giver_energy: FloatArray = ct_i.energy[give_take_indices[0]]
+                receiver_energy: FloatArray = ct_j.energy[give_take_indices[1]]
+                giver_mass: Optional[FloatArray] = (
                     ct_i.mass[give_take_indices[0]]
                     if ct_i.mass_based and ct_i.mass is not None
                     else None
                 )
-                receiver_mass: Optional[np.ndarray] = (
+                receiver_mass: Optional[FloatArray] = (
                     ct_j.mass[give_take_indices[1]]
                     if ct_j.mass_based and ct_j.mass is not None
                     else None
@@ -351,7 +433,10 @@ class CellularAutomata:
 
                 # Process energy and mass transfers
                 updated: Tuple[
-                    np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]
+                    FloatArray,
+                    FloatArray,
+                    Optional[FloatArray],
+                    Optional[FloatArray],
                 ] = give_take_interaction(
                     giver_energy,
                     receiver_energy,
@@ -372,18 +457,16 @@ class CellularAutomata:
         # Handle synergy (cooperative energy sharing)
         if synergy_factor > 0.0 and self.config.synergy_range > 0.0:
             # Find pairs within synergy range
-            synergy_within: np.ndarray = (
-                dist_sq[indices] <= self.config.synergy_range**2
-            )
-            synergy_indices: Tuple[np.ndarray, np.ndarray] = (
+            synergy_within: BoolArray = dist_sq[indices] <= self.config.synergy_range**2
+            synergy_indices: Tuple[IntArray, IntArray] = (
                 indices[0][synergy_within],
                 indices[1][synergy_within],
             )
 
             if synergy_indices[0].size > 0:
                 # Extract energy values for redistribution
-                energyA: np.ndarray = ct_i.energy[synergy_indices[0]]
-                energyB: np.ndarray = ct_j.energy[synergy_indices[1]]
+                energyA: FloatArray = ct_i.energy[synergy_indices[0]]
+                energyB: FloatArray = ct_j.energy[synergy_indices[1]]
 
                 # Apply energy sharing based on synergy factor
                 new_energyA, new_energyB = apply_synergy(
@@ -398,7 +481,7 @@ class CellularAutomata:
         ct_i.vy *= friction_factor
 
         # Apply thermal noise (random motion)
-        thermal_noise: np.ndarray = (
+        thermal_noise: FloatArray = (
             np.random.uniform(-0.5, 0.5, n_i) * self.config.global_temperature
         )
         ct_i.vx += thermal_noise
@@ -422,6 +505,7 @@ class CellularAutomata:
 
         When particles reach screen edges, their velocities are reversed in the
         appropriate dimension and positions are constrained to remain within bounds.
+        Uses vectorized operations for maximum performance.
 
         Args:
             ct: Specific cellular type to process; if None, processes all types
@@ -436,10 +520,10 @@ class CellularAutomata:
                 continue
 
             # Create boolean masks for boundary violations in each direction
-            left_mask: np.ndarray = ct.x < self.screen_bounds[0]
-            right_mask: np.ndarray = ct.x > self.screen_bounds[1]
-            top_mask: np.ndarray = ct.y < self.screen_bounds[2]
-            bottom_mask: np.ndarray = ct.y > self.screen_bounds[3]
+            left_mask: BoolArray = ct.x < self.screen_bounds[0]
+            right_mask: BoolArray = ct.x > self.screen_bounds[1]
+            top_mask: BoolArray = ct.y < self.screen_bounds[2]
+            bottom_mask: BoolArray = ct.y > self.screen_bounds[3]
 
             # Reflect velocities for particles at boundaries
             ct.vx[left_mask | right_mask] *= -1
@@ -456,6 +540,9 @@ class CellularAutomata:
         When a cellular type exceeds a size threshold (500 particles), removes its
         oldest particle to prevent performance degradation. This helps maintain
         framerate while preserving the overall ecological balance.
+
+        Uses vectorized operations to efficiently identify and remove old particles
+        across all component arrays.
         """
         for ct in self.type_manager.cellular_types:
             # Skip types with reasonable population sizes
@@ -463,10 +550,10 @@ class CellularAutomata:
                 continue
 
             # Identify the oldest particle
-            oldest_idx: int = np.argmax(ct.age)
+            oldest_idx: int = int(np.argmax(ct.age))
 
             # Create a mask excluding the oldest particle
-            keep_mask: np.ndarray = np.ones(ct.x.size, dtype=bool)
+            keep_mask: BoolArray = np.ones(ct.x.size, dtype=bool)
             keep_mask[oldest_idx] = False
 
             # Apply the mask to all component arrays
@@ -499,9 +586,12 @@ class CellularAutomata:
         Adds 10% to current energy levels of all particles across all types,
         clamping to maximum allowed value of 200 units. Simulates environmental
         energy input into the system.
+
+        Uses vectorized operations for efficient batch processing.
         """
         for ct in self.type_manager.cellular_types:
-            ct.energy = np.clip(ct.energy * 1.1, 0.0, 200.0)
+            # Add energy with bound checking (10% increase with ceiling)
+            ct.energy = np.clip(ct.energy * 1.1, 0.0, self.config.max_energy)
 
     def apply_clustering(self, ct: CellularTypeData) -> None:
         """
@@ -512,7 +602,8 @@ class CellularAutomata:
         2. Cohesion: Move toward the center of nearby neighbors
         3. Separation: Avoid crowding nearby neighbors
 
-        Uses KD-Tree for efficient nearest neighbor queries.
+        Uses KD-Tree for efficient nearest neighbor queries and vectorized
+        operations for maximum performance.
 
         Args:
             ct: Cellular type to apply clustering behavior to
@@ -523,50 +614,52 @@ class CellularAutomata:
             return
 
         # Build KD-Tree for efficient neighbor searching
-        positions: np.ndarray = np.column_stack((ct.x, ct.y))
-        tree: cKDTree = cKDTree(positions)
+        positions: FloatArray = np.column_stack((ct.x, ct.y))
+        tree: KDTree = KDTree(positions)
 
         # Query all neighbors within cluster radius
-        indices: List[List[int]] = tree.query_ball_tree(
-            tree, self.config.cluster_radius
+        indices_list: List[List[int]] = tree.query_ball_point(
+            positions, self.config.cluster_radius
         )
 
         # Pre-allocate velocity change arrays
-        dvx: np.ndarray = np.zeros(n)
-        dvy: np.ndarray = np.zeros(n)
+        dvx: FloatArray = np.zeros(n, dtype=np.float64)
+        dvy: FloatArray = np.zeros(n, dtype=np.float64)
 
         # Process each particle and its neighbors
-        for idx, neighbor_indices in enumerate(indices):
+        for idx, neighbor_indices in enumerate(indices_list):
             # Filter out self and dead neighbors
-            neighbor_indices = [i for i in neighbor_indices if i != idx and ct.alive[i]]
-            if not neighbor_indices:
+            filtered_indices: List[int] = [
+                i for i in neighbor_indices if i != idx and ct.alive[i]
+            ]
+            if not filtered_indices:
                 continue
 
             # Extract neighbor positions and velocities
-            neighbor_positions: np.ndarray = positions[neighbor_indices]
-            neighbor_velocities: np.ndarray = np.column_stack(
-                (ct.vx[neighbor_indices], ct.vy[neighbor_indices])
+            neighbor_positions: FloatArray = positions[filtered_indices]
+            neighbor_velocities: FloatArray = np.column_stack(
+                (ct.vx[filtered_indices], ct.vy[filtered_indices])
             )
 
             # 1. Alignment - Match velocity with nearby neighbors
-            avg_velocity: np.ndarray = np.mean(neighbor_velocities, axis=0)
-            alignment: np.ndarray = (
-                avg_velocity - np.array([ct.vx[idx], ct.vy[idx]])
+            avg_velocity: FloatArray = np.mean(neighbor_velocities, axis=0)
+            alignment: FloatArray = (
+                avg_velocity - np.array([ct.vx[idx], ct.vy[idx]], dtype=np.float64)
             ) * self.config.alignment_strength
 
             # 2. Cohesion - Move toward the center of nearby neighbors
-            center: np.ndarray = np.mean(neighbor_positions, axis=0)
-            cohesion: np.ndarray = (
+            center: FloatArray = np.mean(neighbor_positions, axis=0)
+            cohesion: FloatArray = (
                 center - positions[idx]
             ) * self.config.cohesion_strength
 
             # 3. Separation - Avoid crowding nearby neighbors
-            separation: np.ndarray = (
+            separation: FloatArray = (
                 positions[idx] - np.mean(neighbor_positions, axis=0)
             ) * self.config.separation_strength
 
             # Combine all forces and store for later application
-            total_force: np.ndarray = alignment + cohesion + separation
+            total_force: FloatArray = alignment + cohesion + separation
             dvx[idx] = total_force[0]
             dvy[idx] = total_force[1]
 
