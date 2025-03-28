@@ -40,28 +40,65 @@ Usage: python geneparticles.py
 Controls: ESC to exit
 """
 
+from __future__ import annotations  # Enable self-referential type hints
+
 from dataclasses import asdict, dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Tuple, TypeVar
+from typing import (
+    ClassVar,
+    Dict,
+    Final,
+    List,
+    Literal,
+    Mapping,
+    Protocol,
+    Tuple,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import numpy as np
 from numpy.typing import NDArray
 
-# Type aliases for improved readability
-FloatArray = NDArray[np.float64]
-T = TypeVar("T")
-Range = Tuple[float, float]
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Type Definitions: Precision before the first keystroke                   ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+# NumPy array specialized types for improved readability and safety
+FloatArray = NDArray[np.float64]  # For continuous genetic traits and positions
+IntArray = NDArray[np.int64]  # For discrete identifiers and counters
+BoolArray = NDArray[np.bool_]  # For vectorized condition masks
+
+# Core simulation type aliases
+T = TypeVar("T")  # Generic type for configuration factory methods
+Range = Tuple[float, float]  # (min_value, max_value) bounds
+RangeConstraint = Dict[str, Range]  # Parameter name to valid range mapping
+ValidationResult = Union[Literal[True], str]  # Success or error message
+
+# Validation result helpers
+VALID: Final[Literal[True]] = True
+PROBABILITY_BOUNDS: Final[Range] = (0.0, 1.0)
 
 
 class TraitType(Enum):
-    """Genetic trait categories for organizational and validation purposes."""
+    """
+    Genetic trait categories for organizational and validation purposes.
 
-    MOVEMENT = auto()  # Traits affecting particle motion
-    INTERACTION = auto()  # Traits affecting inter-particle forces
-    PERCEPTION = auto()  # Traits affecting sensing and awareness
-    REPRODUCTION = auto()  # Traits affecting breeding behaviors
-    SOCIAL = auto()  # Traits affecting group dynamics
-    ADAPTATION = auto()  # Traits affecting evolutionary dynamics
+    Each category represents a distinct aspect of particle behavior that
+    can be genetically influenced and mutated during evolution.
+    """
+
+    MOVEMENT = auto()  # Traits affecting particle motion and velocity
+    INTERACTION = auto()  # Traits affecting inter-particle forces and reactions
+    PERCEPTION = auto()  # Traits affecting sensing distance and environmental awareness
+    REPRODUCTION = (
+        auto()
+    )  # Traits affecting breeding frequency and offspring characteristics
+    SOCIAL = auto()  # Traits affecting group formation and collective behaviors
+    ADAPTATION = (
+        auto()
+    )  # Traits affecting evolutionary plasticity and response to pressure
 
 
 @dataclass(frozen=True)
@@ -69,12 +106,16 @@ class TraitDefinition:
     """
     Immutable definition of a genetic trait's properties and constraints.
 
+    Acts as a schema for a genetic trait, defining its valid range,
+    classification, and baseline values. Immutability ensures trait
+    definitions remain consistent throughout simulation runtime.
+
     Attributes:
-         name: Unique identifier for the trait
-         type: Categorical classification of trait purpose
-         range: Valid minimum/maximum values
-         description: Human-readable explanation of trait function
-         default: Starting value for initialization
+        name: Unique identifier for the trait
+        type: Categorical classification of trait purpose
+        range: Valid minimum/maximum values as (min, max) tuple
+        description: Human-readable explanation of trait function
+        default: Starting value for initialization
     """
 
     name: str
@@ -83,6 +124,40 @@ class TraitDefinition:
     description: str
     default: float
 
+    def __post_init__(self) -> None:
+        """Validate trait definition parameters upon initialization."""
+        if not self.name:
+            raise ValueError("Trait name must be a non-empty string")
+
+        if len(self.range) != 2:
+            raise ValueError("Range must be a tuple of two numeric values")
+
+        if self.range[0] >= self.range[1]:
+            raise ValueError(
+                f"Range minimum ({self.range[0]}) must be less than maximum ({self.range[1]})"
+            )
+
+        if not self.description:
+            raise ValueError("Description must be a non-empty string")
+
+        if not (self.range[0] <= self.default <= self.range[1]):
+            raise ValueError(
+                f"Default value {self.default} is outside valid range {self.range}"
+            )
+
+
+class Validator(Protocol):
+    """Protocol defining the validation interface for configuration objects."""
+
+    def _validate(self) -> None:
+        """
+        Verify configuration integrity and parameter constraints.
+
+        Raises:
+            ValueError: If any parameter violates defined constraints
+        """
+        ...
+
 
 @dataclass
 class GeneticParamConfig:
@@ -90,15 +165,17 @@ class GeneticParamConfig:
     Configuration for genetic parameters and mutation dynamics.
 
     Defines trait specifications, mutation rates, and constraint mechanisms
-    to maintain biologically plausible simulation behaviors.
+    to maintain biologically plausible simulation behaviors. Serves as the
+    central registry for all genetic trait definitions and their mutation
+    parameters.
 
     Attributes:
-         gene_traits: Registry of all genetic trait names
-         gene_mutation_rate: Probability of trait mutation during reproduction
-         gene_mutation_range: Bounds for mutation magnitude
-         trait_definitions: Complete specifications for all genetic traits
-         energy_efficiency_mutation_rate: Probability of energy efficiency mutation
-         energy_efficiency_mutation_range: Bounds for energy efficiency mutation
+        gene_traits: Registry of all genetic trait names
+        gene_mutation_rate: Probability of trait mutation during reproduction (0.0-1.0)
+        gene_mutation_range: Bounds for mutation magnitude as (min_delta, max_delta)
+        trait_definitions: Complete specifications for all genetic traits
+        energy_efficiency_mutation_rate: Probability of energy efficiency mutation (0.0-1.0)
+        energy_efficiency_mutation_range: Bounds for energy efficiency mutation as (min_delta, max_delta)
     """
 
     gene_traits: List[str] = field(default_factory=list)
@@ -108,15 +185,26 @@ class GeneticParamConfig:
     energy_efficiency_mutation_rate: float = 0.2
     energy_efficiency_mutation_range: Range = (-0.15, 0.3)
 
+    # Reserved trait names that must be present in all valid configurations
+    CORE_TRAITS: ClassVar[Final[List[str]]] = [
+        "speed_factor",
+        "interaction_strength",
+        "perception_range",
+        "reproduction_rate",
+        "synergy_affinity",
+        "colony_factor",
+        "drift_sensitivity",
+    ]
+
     def __post_init__(self) -> None:
-        """Initialize trait definitions and validate configuration."""
-        # Define core trait specifications
+        """Initialize trait definitions and validate configuration integrity."""
+        # Define core trait specifications with full metadata
         self._initialize_trait_definitions()
 
-        # Extract trait names from definitions
+        # Extract trait names from definitions for convenient access
         self.gene_traits = list(self.trait_definitions.keys())
 
-        # Validate configuration
+        # Verify configuration validity
         self._validate()
 
     def _initialize_trait_definitions(self) -> None:
@@ -124,7 +212,8 @@ class GeneticParamConfig:
         Build trait specification registry with full trait metadata.
 
         Each trait receives a complete definition including valid ranges,
-        behavioral category, and descriptive explanation.
+        behavioral category, and descriptive explanation. This creates the
+        genetic foundation for the simulation ecosystem.
         """
         self.trait_definitions = {
             "speed_factor": TraitDefinition(
@@ -182,30 +271,56 @@ class GeneticParamConfig:
         """
         Verify configuration integrity and parameter constraints.
 
+        Performs comprehensive validation to ensure genetic parameters are
+        within acceptable ranges and follow biologically plausible rules.
+
         Raises:
-              ValueError: If any parameter violates defined constraints
+            ValueError: If any parameter violates defined constraints
         """
-        if not (0.0 <= self.gene_mutation_rate <= 1.0):
-            raise ValueError("Gene mutation rate must be between 0.0 and 1.0")
+        # Validate mutation rates (must be probabilities between 0-1)
+        self._validate_probability("gene_mutation_rate", self.gene_mutation_rate)
+        self._validate_probability(
+            "energy_efficiency_mutation_rate", self.energy_efficiency_mutation_rate
+        )
 
-        if self.gene_mutation_range[0] >= self.gene_mutation_range[1]:
-            raise ValueError("Gene mutation range must have min < max")
+        # Validate mutation ranges (min must be less than max)
+        self._validate_range_order("gene_mutation_range", self.gene_mutation_range)
+        self._validate_range_order(
+            "energy_efficiency_mutation_range", self.energy_efficiency_mutation_range
+        )
 
-        if not (0.0 <= self.energy_efficiency_mutation_rate <= 1.0):
-            raise ValueError(
-                "Energy efficiency mutation rate must be between 0.0 and 1.0"
-            )
-
-        if (
-            self.energy_efficiency_mutation_range[0]
-            >= self.energy_efficiency_mutation_range[1]
-        ):
-            raise ValueError("Energy efficiency mutation range must have min < max")
-
-        # Verify all trait definitions exist
+        # Verify all required traits are defined
         for trait in self.gene_traits:
             if trait not in self.trait_definitions:
                 raise ValueError(f"Missing trait definition for '{trait}'")
+
+    def _validate_probability(self, name: str, value: float) -> None:
+        """
+        Validate that a parameter represents a valid probability (0.0-1.0).
+
+        Args:
+            name: Parameter name for error reporting
+            value: Value to validate
+
+        Raises:
+            ValueError: If value is outside valid probability range
+        """
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"{name} must be between 0.0 and 1.0, got {value}")
+
+    def _validate_range_order(self, name: str, value: Range) -> None:
+        """
+        Validate that a range tuple has min < max.
+
+        Args:
+            name: Parameter name for error reporting
+            value: Range tuple to validate
+
+        Raises:
+            ValueError: If min >= max
+        """
+        if value[0] >= value[1]:
+            raise ValueError(f"{name} must have min < max, got {value}")
 
     def clamp_gene_values(
         self,
@@ -232,18 +347,19 @@ class GeneticParamConfig:
         a genetic "immune system" against extreme mutations.
 
         Args:
-              speed_factor: Movement velocity multipliers
-              interaction_strength: Interaction force multipliers
-              perception_range: Environmental sensing distances
-              reproduction_rate: Reproduction probability values
-              synergy_affinity: Energy sharing tendencies
-              colony_factor: Group formation tendencies
-              drift_sensitivity: Evolutionary responsiveness values
+            speed_factor: Movement velocity multipliers
+            interaction_strength: Interaction force multipliers
+            perception_range: Environmental sensing distances
+            reproduction_rate: Reproduction probability values
+            synergy_affinity: Energy sharing tendencies
+            colony_factor: Group formation tendencies
+            drift_sensitivity: Evolutionary responsiveness values
 
         Returns:
-              Tuple of constrained arrays with identical shapes but values
-              clamped to their respective trait definition ranges
+            Tuple of constrained arrays with identical shapes but values
+            clamped to their respective trait definition ranges
         """
+        # Apply constraint boundaries to each trait array using vectorized operations
         return (
             np.clip(
                 speed_factor,
@@ -287,38 +403,47 @@ class GeneticParamConfig:
         Retrieve the valid range for a specific trait.
 
         Args:
-              trait_name: Name of the genetic trait
+            trait_name: Name of the genetic trait
 
         Returns:
-              Tuple containing (min, max) valid values
+            Tuple containing (min, max) valid values
 
         Raises:
-              KeyError: If trait_name is not a valid genetic trait
+            KeyError: If trait_name is not a valid genetic trait
         """
         if trait_name not in self.trait_definitions:
             raise KeyError(f"Unknown trait: {trait_name}")
         return self.trait_definitions[trait_name].range
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, object]:
         """
         Convert configuration to a serializable dictionary.
 
+        Creates a representation suitable for JSON serialization, configuration
+        persistence, or transmission between systems.
+
         Returns:
-              Dictionary containing all configuration parameters with
-              trait definitions converted to serializable format
+            Dictionary containing all configuration parameters with
+            trait definitions converted to serializable format
         """
+        # Extract all fields except trait_definitions
         result = {k: v for k, v in asdict(self).items() if k != "trait_definitions"}
-        # Convert TraitDefinitions to dict
+
+        # Convert TraitDefinitions to dictionaries
         result["trait_definitions"] = {
             name: asdict(definition)
             for name, definition in self.trait_definitions.items()
         }
-        return result
+
+        return cast(Dict[str, object], result)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "GeneticParamConfig":
+    def from_dict(cls, config_dict: Mapping[str, object]) -> GeneticParamConfig:
         """
         Create a genetic parameter configuration from a dictionary.
+
+        Factory method that reconstructs a fully validated GeneticParamConfig
+        from a previously serialized dictionary representation.
 
         Args:
             config_dict: Dictionary containing genetic configuration parameters
@@ -328,33 +453,42 @@ class GeneticParamConfig:
 
         Raises:
             ValueError: If dictionary contains invalid genetic configuration
+            TypeError: If dictionary structure doesn't match expected schema
         """
         instance = cls()
+        config_copy = dict(config_dict)  # Create mutable copy
 
         # Handle trait definitions separately if present
-        trait_defs = config_dict.pop("trait_definitions", {})
+        trait_defs = config_copy.pop("trait_definitions", {})
         if trait_defs:
             # Recreate TraitDefinition objects from dictionary representation
-            instance.trait_definitions = {
-                name: TraitDefinition(
-                    name=def_dict["name"],
-                    type=(
-                        TraitType[def_dict["type"].name]
-                        if isinstance(def_dict["type"], Enum)
-                        else def_dict["type"]
-                    ),
-                    range=def_dict["range"],
-                    description=def_dict["description"],
-                    default=def_dict["default"],
+            instance.trait_definitions = {}
+            for name, def_dict in cast(
+                Dict[str, Dict[str, object]], trait_defs
+            ).items():
+                trait_type = def_dict["type"]
+                if isinstance(trait_type, Enum):
+                    # Handle already-enum values
+                    enum_type = TraitType[trait_type.name]
+                else:
+                    # Handle string representation
+                    enum_type = TraitType[cast(str, trait_type)]
+
+                instance.trait_definitions[name] = TraitDefinition(
+                    name=cast(str, def_dict["name"]),
+                    type=enum_type,
+                    range=cast(Range, def_dict["range"]),
+                    description=cast(str, def_dict["description"]),
+                    default=cast(float, def_dict["default"]),
                 )
-                for name, def_dict in trait_defs.items()
-            }
 
         # Set all other attributes
-        for key, value in config_dict.items():
+        for key, value in config_copy.items():
             if hasattr(instance, key):
                 setattr(instance, key, value)
 
+        # Perform validation to ensure reconstructed config is valid
+        instance._validate()
         return instance
 
 
@@ -367,46 +501,72 @@ class SimulationConfig:
     and emergent behavior tuning.
 
     Attributes:
-         n_cell_types: Number of distinct cellular types
-         particles_per_type: Initial particles per cellular type
-         min_particles_per_type: Minimum particles threshold per type
-         max_particles_per_type: Maximum particles allowed per type
-         mass_range: Min/max mass values for mass-based particles
-         base_velocity_scale: Base movement speed multiplier
-         mass_based_fraction: Proportion of types using mass-based interactions
-         interaction_strength_range: Min/max interaction force strengths
-         max_frames: Maximum simulation frames (0 = infinite)
-         initial_energy: Starting energy per particle
-         friction: Environmental movement resistance (0-1)
-         global_temperature: Random motion intensity
-         predation_range: Maximum distance for predation interactions
-         energy_transfer_factor: Efficiency of energy transfers
-         mass_transfer: Whether mass transfers with energy
-         max_age: Maximum particle lifespan (inf = immortal)
-         evolution_interval: Frames between evolutionary updates
-         synergy_range: Maximum distance for synergy interactions
-         culling_fitness_weights: Weighting factors for particle fitness
-         reproduction_energy_threshold: Minimum energy for reproduction
-         reproduction_mutation_rate: Mutation probability during reproduction
-         reproduction_offspring_energy_fraction: Energy fraction given to offspring
-         alignment_strength: Strength of flocking alignment behavior
-         cohesion_strength: Strength of flocking cohesion behavior
-         separation_strength: Strength of flocking separation behavior
-         cluster_radius: Radius for flocking neighbor detection
-         particle_size: Visual size of particles
-         energy_efficiency_range: Min/max energy efficiency values
-         genetics: Nested genetic parameter configuration
-         speciation_threshold: Genetic distance threshold for new species
-         colony_formation_probability: Probability of colony formation
-         colony_radius: Maximum colony size
-         colony_cohesion_strength: Force pulling colony members together
-         synergy_evolution_rate: Rate of synergy relationship changes
-         complexity_factor: Multiplier for behavior complexity
-         structural_complexity_weight: Emphasis on emergent structures
+        # Population parameters
+        n_cell_types: Number of distinct cellular types (int > 0)
+        particles_per_type: Initial particles per cellular type (int > 0)
+        min_particles_per_type: Minimum particles threshold per type (int > 0)
+        max_particles_per_type: Maximum particles allowed per type (int > min)
+
+        # Physical parameters
+        mass_range: Min/max particle mass values as (min: float > 0, max: float)
+        base_velocity_scale: Base movement speed multiplier (float > 0)
+        mass_based_fraction: Proportion of types using mass-based interactions (0.0-1.0)
+        interaction_strength_range: Min/max force strength as (min: float, max: float)
+        friction: Environmental movement resistance coefficient (0.0-1.0)
+        global_temperature: Random motion intensity factor (float ≥ 0)
+
+        # Energy system parameters
+        initial_energy: Starting energy per particle (float > 0)
+        predation_range: Maximum distance for predation interactions (float > 0)
+        energy_transfer_factor: Efficiency of energy transfers (0.0-1.0)
+        mass_transfer: Whether mass transfers with energy (bool)
+        max_age: Maximum particle lifespan in frames (np.inf = immortal)
+        energy_efficiency_range: Min/max energy efficiency values (min: float, max: float)
+        max_energy: Maximum energy capacity per particle (float > 0)
+
+        # Lifecycle parameters
+        max_frames: Maximum simulation frames (0 = infinite)
+        evolution_interval: Frames between evolutionary updates (int > 0)
+        synergy_range: Maximum distance for synergy interactions (float > 0)
+
+        # Selection parameters
+        culling_fitness_weights: Weighting factors for particle fitness (Dict[str, float])
+
+        # Reproduction parameters
+        reproduction_energy_threshold: Minimum energy for reproduction (float > 0)
+        reproduction_mutation_rate: Mutation probability during reproduction (0.0-1.0)
+        reproduction_offspring_energy_fraction: Energy fraction given to offspring (0.0-1.0)
+
+        # Flocking behavior parameters
+        alignment_strength: Strength of flocking alignment behavior (float)
+        cohesion_strength: Strength of flocking cohesion behavior (float)
+        separation_strength: Strength of flocking separation behavior (float)
+        cluster_radius: Radius for flocking neighbor detection (float > 0)
+
+        # Visualization parameters
+        particle_size: Visual size of particles (float > 0)
+
+        # Emergence parameters
+        speciation_threshold: Genetic distance threshold for new species (float > 0)
+        colony_formation_probability: Probability of colony formation (0.0-1.0)
+        colony_radius: Maximum colony size (float > 0)
+        colony_cohesion_strength: Force pulling colony members together (0.0-1.0)
+        synergy_evolution_rate: Rate of synergy relationship changes (0.0-1.0)
+        complexity_factor: Multiplier for behavior complexity (float > 0)
+        structural_complexity_weight: Emphasis on emergent structures (0.0-1.0)
+
+        # Genetic parameters
+        genetics: Nested genetic parameter configuration (GeneticParamConfig)
     """
 
     def __init__(self) -> None:
-        """Initialize simulation configuration with default parameters."""
+        """
+        Initialize simulation configuration with default parameters.
+
+        Creates a fully functional configuration with balanced parameters
+        suitable for most simulation scenarios. All parameters undergo
+        validation to ensure simulation stability.
+        """
         # Population parameters
         self.n_cell_types: int = 20
         self.particles_per_type: int = 50
@@ -419,7 +579,7 @@ class SimulationConfig:
         self.mass_based_fraction: float = 0.7
         self.interaction_strength_range: Range = (-3.0, 3.0)
         self.friction: float = 0.25
-        self.global_temperature: float = 0.05  # Random motion intensity
+        self.global_temperature: float = 0.05
 
         # Energy system parameters
         self.initial_energy: float = 150.0
@@ -427,7 +587,7 @@ class SimulationConfig:
         self.energy_transfer_factor: float = 0.7
         self.mass_transfer: bool = True
         self.energy_efficiency_range: Range = (-0.4, 3.0)
-        self.max_energy: float = 300.0  # Maximum energy for particles
+        self.max_energy: float = 300.0
 
         # Lifecycle parameters
         self.max_frames: int = 0  # 0 = infinite
@@ -470,7 +630,7 @@ class SimulationConfig:
         self.structural_complexity_weight: float = 0.9
 
         # Initialize genetic parameters
-        self.genetics = GeneticParamConfig()
+        self.genetics: GeneticParamConfig = GeneticParamConfig()
 
         # Validate configuration
         self._validate()
@@ -483,9 +643,19 @@ class SimulationConfig:
         acceptable ranges, preventing crashes or unexpected behaviors.
 
         Raises:
-              ValueError: If any parameter violates its constraints
+            ValueError: If any parameter violates its constraints
         """
-        # Population validation
+        self._validate_population_parameters()
+        self._validate_physical_parameters()
+        self._validate_energy_parameters()
+        self._validate_lifecycle_parameters()
+        self._validate_reproduction_parameters()
+        self._validate_flocking_parameters()
+        self._validate_visualization_parameters()
+        self._validate_emergence_parameters()
+
+    def _validate_population_parameters(self) -> None:
+        """Validate population-related parameters."""
         if self.n_cell_types <= 0:
             raise ValueError("Number of cell types must be greater than 0")
 
@@ -498,7 +668,8 @@ class SimulationConfig:
         if self.max_particles_per_type < self.min_particles_per_type:
             raise ValueError("Maximum particles must be ≥ minimum particles")
 
-        # Physical properties validation
+    def _validate_physical_parameters(self) -> None:
+        """Validate physical property parameters."""
         if self.mass_range[0] <= 0:
             raise ValueError("Minimum mass must be positive")
 
@@ -514,7 +685,8 @@ class SimulationConfig:
         if self.interaction_strength_range[0] >= self.interaction_strength_range[1]:
             raise ValueError("Interaction strength range must have min < max")
 
-        # Energy system validation
+    def _validate_energy_parameters(self) -> None:
+        """Validate energy system parameters."""
         if self.initial_energy <= 0:
             raise ValueError("Initial energy must be positive")
 
@@ -533,14 +705,22 @@ class SimulationConfig:
         if self.energy_efficiency_range[0] >= self.energy_efficiency_range[1]:
             raise ValueError("Energy efficiency range must have min < max")
 
-        # Lifecycle validation
+        if self.max_energy <= 0:
+            raise ValueError("Maximum energy must be positive")
+
+    def _validate_lifecycle_parameters(self) -> None:
+        """Validate lifecycle and evolution parameters."""
         if self.max_frames < 0:
             raise ValueError("Maximum frames must be non-negative")
 
         if self.synergy_range <= 0:
             raise ValueError("Synergy range must be positive")
 
-        # Reproduction validation
+        if self.evolution_interval <= 0:
+            raise ValueError("Evolution interval must be positive")
+
+    def _validate_reproduction_parameters(self) -> None:
+        """Validate reproduction and mutation parameters."""
         if self.reproduction_energy_threshold <= 0:
             raise ValueError("Reproduction energy threshold must be positive")
 
@@ -552,15 +732,18 @@ class SimulationConfig:
                 "Reproduction offspring energy fraction must be between 0.0 and 1.0"
             )
 
-        # Flocking validation
+    def _validate_flocking_parameters(self) -> None:
+        """Validate flocking and group behavior parameters."""
         if self.cluster_radius <= 0:
             raise ValueError("Cluster radius must be positive")
 
-        # Visualization validation
+    def _validate_visualization_parameters(self) -> None:
+        """Validate visualization and rendering parameters."""
         if self.particle_size <= 0:
             raise ValueError("Particle size must be positive")
 
-        # Emergence validation
+    def _validate_emergence_parameters(self) -> None:
+        """Validate complex emergence behavior parameters."""
         if self.speciation_threshold <= 0:
             raise ValueError("Speciation threshold must be positive")
 
@@ -582,7 +765,7 @@ class SimulationConfig:
         if not (0.0 <= self.structural_complexity_weight <= 1.0):
             raise ValueError("Structural complexity weight must be between 0.0 and 1.0")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, object]:
         """
         Convert entire configuration to a flat dictionary representation.
 
@@ -590,8 +773,8 @@ class SimulationConfig:
         nested configurations for logging, persistence, or visualization.
 
         Returns:
-              Dictionary containing all configuration parameters and
-              nested genetics configuration as nested dictionary
+            Dictionary containing all configuration parameters with
+            nested genetics configuration as nested dictionary
         """
         # Start with all attributes except genetics
         config_dict = {k: v for k, v in self.__dict__.items() if k != "genetics"}
@@ -599,31 +782,38 @@ class SimulationConfig:
         # Add genetics as a nested dictionary
         config_dict["genetics"] = self.genetics.to_dict()
 
-        return config_dict
+        return cast(Dict[str, object], config_dict)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> "SimulationConfig":
+    def from_dict(cls, config_dict: Mapping[str, object]) -> SimulationConfig:
         """
         Create a configuration instance from a dictionary.
 
+        Factory method that reconstructs a fully validated SimulationConfig
+        from a previously serialized dictionary representation.
+
         Args:
-              config_dict: Dictionary containing configuration parameters
+            config_dict: Dictionary containing configuration parameters
 
         Returns:
-              Fully initialized SimulationConfig instance
+            Fully initialized SimulationConfig instance
 
         Raises:
-              ValueError: If dictionary contains invalid configuration
+            ValueError: If dictionary contains invalid configuration
+            TypeError: If dictionary structure doesn't match expected schema
         """
         instance = cls()
+        config_copy = dict(config_dict)  # Create mutable copy
 
         # Extract genetics config if present and properly initialize it
-        genetics_dict = config_dict.pop("genetics", None)
+        genetics_dict = config_copy.pop("genetics", None)
         if genetics_dict:
-            instance.genetics = GeneticParamConfig.from_dict(genetics_dict)
+            instance.genetics = GeneticParamConfig.from_dict(
+                cast(Mapping[str, object], genetics_dict)
+            )
 
         # Set all other attributes
-        for key, value in config_dict.items():
+        for key, value in config_copy.items():
             if hasattr(instance, key):
                 setattr(instance, key, value)
 

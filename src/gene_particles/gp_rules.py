@@ -6,16 +6,63 @@ with precise typing and vectorized operations for maximum performance.
 """
 
 import random
-from typing import Dict, List, Tuple, Union
+from enum import Enum, auto
+from typing import Final, List, Protocol, Tuple, TypedDict
 
 import numpy as np
 
 from game_forge.src.gene_particles.gp_config import SimulationConfig
 from game_forge.src.gene_particles.gp_utility import BoolArray, FloatArray
 
-###############################################################
-# Interaction Rules, Give-Take & Synergy
-###############################################################
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Type Definitions: Precise interaction parameter schemas                  ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+class InteractionType(Enum):
+    """Classification of physical interaction types between cellular entities."""
+
+    POTENTIAL = auto()  # Distance-based radial forces
+    GRAVITY = auto()  # Mass-based gravitational forces
+    HYBRID = auto()  # Combination of potential and gravity
+
+
+class InteractionParams(TypedDict):
+    """
+    Type-safe definition of physical interaction parameters between cell types.
+
+    All interactions use potential-based forces, while mass-based types may
+    additionally use gravitational forces, creating complex hybrid behaviors.
+    """
+
+    use_potential: bool  # Whether to apply potential-based forces
+    use_gravity: bool  # Whether to apply gravity-based forces
+    potential_strength: float  # Positive = repulsion, Negative = attraction
+    gravity_factor: float  # Strength multiplier for gravitational force
+    max_dist: float  # Maximum interaction distance cutoff
+
+
+# Physical constants and system boundaries
+SYNERGY_PROBABILITY: Final[float] = 0.1  # Baseline chance for synergy relation
+GIVE_TAKE_PROBABILITY: Final[float] = 0.1  # Baseline chance for predation relation
+EVOLUTION_ADJUSTMENT_RANGE: Final[Tuple[float, float]] = (0.95, 1.05)  # ±5% mutation
+INTERACTION_DISTANCE_RANGE: Final[Tuple[float, float]] = (50.0, 200.0)  # Units
+SYNERGY_STRENGTH_RANGE: Final[Tuple[float, float]] = (0.1, 0.9)  # Dimensionless factor
+GRAVITY_STRENGTH_RANGE: Final[Tuple[float, float]] = (0.1, 2.0)  # Dimensionless factor
+MIN_INTERACTION_DISTANCE: Final[float] = 10.0  # Minimum interaction distance
+
+
+class InteractionEvolver(Protocol):
+    """Protocol defining how interaction parameters evolve over time."""
+
+    def evolve_parameters(self, frame_count: int) -> None:
+        """
+        Evolve interaction parameters over time.
+
+        Args:
+            frame_count: Current simulation frame count
+        """
+        ...
 
 
 class InteractionRules:
@@ -47,15 +94,13 @@ class InteractionRules:
         """
         self.config: SimulationConfig = config
         self.mass_based_type_indices: List[int] = mass_based_type_indices
-        self.rules: List[Tuple[int, int, Dict[str, Union[bool, float]]]] = (
+        self.rules: List[Tuple[int, int, InteractionParams]] = (
             self._create_interaction_matrix()
         )
         self.give_take_matrix: BoolArray = self._create_give_take_matrix()
         self.synergy_matrix: FloatArray = self._create_synergy_matrix()
 
-    def _create_interaction_matrix(
-        self,
-    ) -> List[Tuple[int, int, Dict[str, Union[bool, float]]]]:
+    def _create_interaction_matrix(self) -> List[Tuple[int, int, InteractionParams]]:
         """
         Create a matrix of interaction parameters for all cellular type pairs.
 
@@ -67,18 +112,18 @@ class InteractionRules:
             List of tuples (i, j, params) where i and j are cellular type indices
             and params is a dictionary of interaction parameters
         """
-        final_rules: List[Tuple[int, int, Dict[str, Union[bool, float]]]] = []
+        n_types = self.config.n_cell_types
+        final_rules: List[Tuple[int, int, InteractionParams]] = []
 
-        for i in range(self.config.n_cell_types):
-            for j in range(self.config.n_cell_types):
+        # Generate unique physics parameters for each cell type pair
+        for i in range(n_types):
+            for j in range(n_types):
                 params = self._random_interaction_params(i, j)
                 final_rules.append((i, j, params))
 
         return final_rules
 
-    def _random_interaction_params(
-        self, i: int, j: int
-    ) -> Dict[str, Union[bool, float]]:
+    def _random_interaction_params(self, i: int, j: int) -> InteractionParams:
         """
         Generate randomized interaction parameters between two cellular types.
 
@@ -115,13 +160,19 @@ class InteractionRules:
             potential_strength = -potential_strength
 
         # Set gravity factor if applicable, otherwise zero
-        gravity_factor: float = random.uniform(0.1, 2.0) if use_gravity else 0.0
+        gravity_factor: float = (
+            random.uniform(GRAVITY_STRENGTH_RANGE[0], GRAVITY_STRENGTH_RANGE[1])
+            if use_gravity
+            else 0.0
+        )
 
-        # Random interaction distance between 50-200 units
-        max_dist: float = random.uniform(50.0, 200.0)
+        # Random interaction distance within standard bounds
+        max_dist: float = random.uniform(
+            INTERACTION_DISTANCE_RANGE[0], INTERACTION_DISTANCE_RANGE[1]
+        )
 
-        # Compile interaction parameters
-        params: Dict[str, Union[bool, float]] = {
+        # Compile interaction parameters into strongly-typed structure
+        params: InteractionParams = {
             "use_potential": use_potential,
             "use_gravity": use_gravity,
             "potential_strength": potential_strength,
@@ -143,17 +194,17 @@ class InteractionRules:
             Boolean matrix of shape (n_cell_types, n_cell_types) defining
             give-take relationships between cellular types
         """
+        n_types = self.config.n_cell_types
+
         # Initialize empty relationship matrix
-        matrix: BoolArray = np.zeros(
-            (self.config.n_cell_types, self.config.n_cell_types), dtype=bool
-        )
+        matrix: BoolArray = np.zeros((n_types, n_types), dtype=bool)
 
         # For each non-identical cellular type pair
-        for i in range(self.config.n_cell_types):
-            for j in range(self.config.n_cell_types):
+        for i in range(n_types):
+            for j in range(n_types):
                 if i != j:
-                    # 10% chance to establish give-take relationship
-                    if random.random() < 0.1:
+                    # Establish give-take relationship with defined probability
+                    if random.random() < GIVE_TAKE_PROBABILITY:
                         matrix[i, j] = True
 
         return matrix
@@ -170,20 +221,22 @@ class InteractionRules:
             Float matrix of shape (n_cell_types, n_cell_types) with values
             in range [0.0, 1.0] representing synergy strengths
         """
+        n_types = self.config.n_cell_types
+
         # Initialize empty synergy matrix
-        synergy_matrix: FloatArray = np.zeros(
-            (self.config.n_cell_types, self.config.n_cell_types), dtype=np.float64
-        )
+        synergy_matrix: FloatArray = np.zeros((n_types, n_types), dtype=np.float64)
 
         # For each non-identical cellular type pair
-        for i in range(self.config.n_cell_types):
-            for j in range(self.config.n_cell_types):
+        for i in range(n_types):
+            for j in range(n_types):
                 if i != j:
-                    # 10% chance to establish synergy relationship
-                    if random.random() < 0.1:
-                        # Assign random synergy factor between 0.1 and 0.9
+                    # Establish synergy relationship with defined probability
+                    if random.random() < SYNERGY_PROBABILITY:
+                        # Assign random synergy factor within standard range
                         # Higher values create stronger energy sharing
-                        synergy_matrix[i, j] = random.uniform(0.1, 0.9)
+                        synergy_matrix[i, j] = random.uniform(
+                            SYNERGY_STRENGTH_RANGE[0], SYNERGY_STRENGTH_RANGE[1]
+                        )
                     else:
                         # No synergy relationship
                         synergy_matrix[i, j] = 0.0
@@ -206,34 +259,69 @@ class InteractionRules:
         if frame_count % self.config.evolution_interval != 0:
             return
 
-        # Evolve interaction parameters with small random adjustments
+        self._evolve_interaction_forces()
+        self._evolve_energy_transfer()
+        self._evolve_synergy_relationships()
+
+    def _evolve_interaction_forces(self) -> None:
+        """
+        Evolve physical interaction forces with small random adjustments.
+
+        Each force parameter has a small chance to mutate slightly, creating
+        gradually changing dynamics while maintaining simulation stability.
+        """
         for _, _, params in self.rules:
             # 10% chance to adjust potential strength by ±5%
             if random.random() < 0.1:
-                params["potential_strength"] *= random.uniform(0.95, 1.05)
+                params["potential_strength"] *= random.uniform(
+                    EVOLUTION_ADJUSTMENT_RANGE[0], EVOLUTION_ADJUSTMENT_RANGE[1]
+                )
 
             # 5% chance to adjust gravity factor if present
-            if random.random() < 0.05 and "gravity_factor" in params:
-                params["gravity_factor"] *= random.uniform(0.95, 1.05)
+            if random.random() < 0.05 and params["use_gravity"]:
+                params["gravity_factor"] *= random.uniform(
+                    EVOLUTION_ADJUSTMENT_RANGE[0], EVOLUTION_ADJUSTMENT_RANGE[1]
+                )
 
             # 5% chance to adjust interaction distance
             if random.random() < 0.05:
                 # Ensure distance stays above minimum threshold
                 params["max_dist"] = max(
-                    10.0, params["max_dist"] * random.uniform(0.95, 1.05)
+                    MIN_INTERACTION_DISTANCE,
+                    params["max_dist"]
+                    * random.uniform(
+                        EVOLUTION_ADJUSTMENT_RANGE[0], EVOLUTION_ADJUSTMENT_RANGE[1]
+                    ),
                 )
 
-        # Evolve global energy transfer efficiency
+    def _evolve_energy_transfer(self) -> None:
+        """
+        Evolve energy transfer efficiency across the simulation.
+
+        Small random adjustments to global energy transfer rate create
+        evolving predator-prey dynamics while maintaining physical plausibility.
+        """
+        # 10% chance to evolve global energy transfer efficiency
         if random.random() < 0.1:
             self.config.energy_transfer_factor = min(
                 1.0,  # Maximum transfer efficiency cap
-                self.config.energy_transfer_factor * random.uniform(0.95, 1.05),
+                self.config.energy_transfer_factor
+                * random.uniform(
+                    EVOLUTION_ADJUSTMENT_RANGE[0], EVOLUTION_ADJUSTMENT_RANGE[1]
+                ),
             )
 
+    def _evolve_synergy_relationships(self) -> None:
+        """
+        Evolve synergy relationships between cell types.
+
+        Each synergy relationship has a chance to strengthen or weaken based on
+        the global evolution rate, creating shifting cooperative dynamics.
+        """
         # Evolve synergy relationships based on configured rate
-        rows, cols = self.synergy_matrix.shape  # Unpack directly to avoid type issues
-        for i in range(rows):
-            for j in range(cols):
+        n_types = self.synergy_matrix.shape[0]  # Number of cell types
+        for i in range(n_types):
+            for j in range(n_types):
                 if random.random() < self.config.synergy_evolution_rate:
                     # Apply small random adjustment between -0.05 and +0.05
                     adjustment: float = random.random() * 0.1 - 0.05
