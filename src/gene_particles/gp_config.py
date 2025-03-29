@@ -110,11 +110,11 @@ class GeneticParamConfig:
     """
 
     gene_traits: List[str] = field(default_factory=list)
-    gene_mutation_rate: float = 0.25
-    gene_mutation_range: Range = (-0.2, 0.2)
+    gene_mutation_rate: float = 0.1
+    gene_mutation_range: Range = (-0.05, 0.05)
     trait_definitions: Dict[str, TraitDefinition] = field(default_factory=dict)
-    energy_efficiency_mutation_rate: float = 0.2
-    energy_efficiency_mutation_range: Range = (-0.15, 0.3)
+    energy_efficiency_mutation_rate: float = 0.1
+    energy_efficiency_mutation_range: Range = (-0.025, 0.05)
 
     # Reserved trait names that must be present in all valid configurations
     CORE_TRAITS: ClassVar[Final[List[str]]] = [
@@ -150,14 +150,14 @@ class GeneticParamConfig:
             "speed_factor": TraitDefinition(
                 name="speed_factor",
                 type=TraitType.MOVEMENT,
-                range=(0.05, 4.0),
+                range=(0.05, 2.0),
                 description="Movement velocity multiplier",
                 default=1.0,
             ),
             "interaction_strength": TraitDefinition(
                 name="interaction_strength",
                 type=TraitType.INTERACTION,
-                range=(0.05, 4.0),
+                range=(0.05, 2.0),
                 description="Force interaction multiplier",
                 default=1.0,
             ),
@@ -166,7 +166,7 @@ class GeneticParamConfig:
                 type=TraitType.PERCEPTION,
                 range=(20.0, 400.0),
                 description="Environmental sensing distance",
-                default=100.0,
+                default=200.0,
             ),
             "reproduction_rate": TraitDefinition(
                 name="reproduction_rate",
@@ -180,7 +180,7 @@ class GeneticParamConfig:
                 type=TraitType.SOCIAL,
                 range=(0.0, 3.0),
                 description="Cooperative energy sharing strength",
-                default=1.0,
+                default=1.5,
             ),
             "colony_factor": TraitDefinition(
                 name="colony_factor",
@@ -499,25 +499,25 @@ class SimulationConfig:
         validation to ensure simulation stability.
         """
         # Population parameters
-        self.n_cell_types: int = 20
+        self.n_cell_types: int = 5
         self.particles_per_type: int = 50
         self.min_particles_per_type: int = 50
-        self.max_particles_per_type: int = 300
+        self.max_particles_per_type: int = 1000
 
         # Physical parameters
-        self.mass_range: Range = (0.2, 15.0)
-        self.base_velocity_scale: float = 0.8
-        self.mass_based_fraction: float = 0.7
-        self.interaction_strength_range: Range = (-3.0, 3.0)
-        self.friction: float = 0.25
-        self.global_temperature: float = 0.05
+        self.mass_range: Range = (1.0, 100.0)
+        self.base_velocity_scale: float = 1.0
+        self.mass_based_fraction: float = 1.0
+        self.interaction_strength_range: Range = (-2.0, 1.5)
+        self.friction: float = 0.1
+        self.global_temperature: float = 0.5
 
         # Energy system parameters
         self.initial_energy: float = 150.0
-        self.predation_range: float = 75.0
+        self.predation_range: float = 50.0
         self.energy_transfer_factor: float = 0.7
         self.mass_transfer: bool = True
-        self.energy_efficiency_range: Range = (-0.4, 3.0)
+        self.energy_efficiency_range: Range = (-0.4, 2.0)
         self.max_energy: float = 300.0
 
         # Lifecycle parameters
@@ -532,13 +532,13 @@ class SimulationConfig:
         self.reproduction_offspring_energy_fraction: float = 0.5
 
         # Flocking behavior parameters
-        self.alignment_strength: float = 0.1
+        self.alignment_strength: float = 0.3
         self.cohesion_strength: float = 0.8
-        self.separation_strength: float = 0.3
-        self.cluster_radius: float = 10.0
+        self.separation_strength: float = 0.5
+        self.cluster_radius: float = 50.0
 
         # Visualization parameters
-        self.particle_size: float = 3.0
+        self.particle_size: float = 5.0
 
         # Fitness and selection parameters
         self.culling_fitness_weights: Dict[str, float] = {
@@ -554,8 +554,8 @@ class SimulationConfig:
         # Emergence parameters
         self.speciation_threshold: float = 0.8
         self.colony_formation_probability: float = 0.4
-        self.colony_radius: float = 250.0
-        self.colony_cohesion_strength: float = 0.8
+        self.colony_radius: float = 50.0
+        self.colony_cohesion_strength: float = 1.0
         self.synergy_evolution_rate: float = 0.08
         self.complexity_factor: float = 2.0
         self.structural_complexity_weight: float = 0.9

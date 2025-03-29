@@ -298,6 +298,9 @@ class CellularTypeData:
         alive: Boolean mask indicating which components are alive
         age: Current age of each component
         max_age: Maximum age before component death
+        predation_efficiency: Efficiency at extracting energy from prey
+        cooldown: Recovery time after predatory actions
+        base_mass: Reference mass for growth calculations
         plus various genetic trait arrays and metadata attributes
     """
 
@@ -334,6 +337,8 @@ class CellularTypeData:
         max_drift: float = 2.0,
         min_energy_efficiency: float = -0.3,
         max_energy_efficiency: float = 2.5,
+        initial_predation_efficiency: float = 0.3,
+        initial_cooldown: float = 0.0,
     ) -> None:
         """Initialize a CellularTypeData instance with given parameters.
 
@@ -372,6 +377,8 @@ class CellularTypeData:
             max_drift: Maximum allowed drift sensitivity
             min_energy_efficiency: Minimum allowed energy efficiency
             max_energy_efficiency: Maximum allowed energy efficiency
+            initial_predation_efficiency: Starting predation efficiency
+            initial_cooldown: Initial cooldown value for actions
         """
         # Store metadata
         self.type_id: int = type_id
@@ -464,9 +471,12 @@ class CellularTypeData:
                 self.min_mass,
                 self.max_mass,
             )
+            # Store reference base mass for growth calculations
+            self.base_mass: Optional[FloatArray] = self.mass.copy()
         else:
             # Explicitly set to None for non-mass-based types
             self.mass = None
+            self.base_mass = None
 
         # Initialize alive status and age for cellular components
         self.alive: BoolArray = np.ones(n_particles, dtype=bool)
@@ -525,6 +535,14 @@ class CellularTypeData:
         self.mutation_history: List[List[Tuple[str, float]]] = [
             [] for _ in range(n_particles)
         ]
+
+        # Initialize predation mechanics
+        self.predation_efficiency: FloatArray = np.full(
+            n_particles, initial_predation_efficiency, dtype=np.float64
+        )
+        self.cooldown: FloatArray = np.full(
+            n_particles, initial_cooldown, dtype=np.float64
+        )
 
     def is_alive_mask(self) -> BoolArray:
         """Compute a mask of alive cellular components based on conditions.
@@ -612,6 +630,8 @@ class CellularTypeData:
             "colony_role",
             "fitness_score",
             "generation",
+            "predation_efficiency",
+            "cooldown",
         ]
 
         # Find the smallest valid size
@@ -635,9 +655,16 @@ class CellularTypeData:
                     if arr.size > min_size:
                         setattr(self, attr, arr[:min_size])
 
-        # Handle mass array separately
-        if self.mass_based and self.mass is not None and self.mass.size > min_size:
-            self.mass = self.mass[:min_size]
+        # Handle mass and base_mass arrays separately
+        if self.mass_based:
+            for mass_attr in ["mass", "base_mass"]:
+                mass_array = getattr(self, mass_attr, None)
+                if (
+                    mass_array is not None
+                    and hasattr(mass_array, "size")
+                    and mass_array.size > min_size
+                ):
+                    setattr(self, mass_attr, mass_array[:min_size])
 
     def _process_energy_transfer(
         self, alive_mask: BoolArray, config: "SimulationConfig"
@@ -746,6 +773,8 @@ class CellularTypeData:
             "colony_role",
             "fitness_score",
             "generation",
+            "predation_efficiency",
+            "cooldown",
         ]
 
         # Filter each array to keep only alive components
@@ -765,13 +794,19 @@ class CellularTypeData:
                             filtered = trimmed[alive_mask]
                             setattr(self, attr, filtered)
 
-        # Handle mass array separately if it exists
-        if self.mass_based and self.mass is not None:
-            try:
-                self.mass = self.mass[alive_mask]
-            except IndexError:
-                if len(self.mass) > len(alive_mask):
-                    self.mass = self.mass[: len(alive_mask)][alive_mask]
+        # Handle mass and base_mass arrays separately if they exist
+        if self.mass_based:
+            for mass_attr in ["mass", "base_mass"]:
+                mass_array = getattr(self, mass_attr, None)
+                if mass_array is not None:
+                    try:
+                        filtered_mass = mass_array[alive_mask]
+                        setattr(self, mass_attr, filtered_mass)
+                    except IndexError:
+                        if len(mass_array) > len(alive_mask):
+                            trimmed = mass_array[: len(alive_mask)]
+                            filtered = trimmed[alive_mask]
+                            setattr(self, mass_attr, filtered)
 
         # Filter mutation history list
         if len(self.mutation_history) > 0:
@@ -836,6 +871,8 @@ class CellularTypeData:
         species_id_val: int,
         parent_id_val: int,
         max_age: float,
+        predation_efficiency_val: float = 0.3,
+        cooldown_val: float = 0.0,
     ) -> None:
         """Add a new cellular component to this cellular type.
 
@@ -860,6 +897,8 @@ class CellularTypeData:
             species_id_val: Species ID of the new component
             parent_id_val: Parent ID of the new component
             max_age: Maximum age for the new component
+            predation_efficiency_val: Predation efficiency trait of the new component
+            cooldown_val: Initial cooldown value for the new component
         """
         # Append new component's attributes using NumPy's concatenate for efficiency
         self.x = np.concatenate((self.x, np.array([x], dtype=np.float64)))
@@ -914,6 +953,17 @@ class CellularTypeData:
             (self.parent_id, np.array([parent_id_val], dtype=np.int_))
         )
 
+        # Append predation traits
+        self.predation_efficiency = np.concatenate(
+            (
+                self.predation_efficiency,
+                np.array([predation_efficiency_val], dtype=np.float64),
+            )
+        )
+        self.cooldown = np.concatenate(
+            (self.cooldown, np.array([cooldown_val], dtype=np.float64))
+        )
+
         # Handle mass for mass-based types
         if self.mass_based and self.mass is not None:
             if mass_val is None or mass_val <= 0.0:
@@ -922,6 +972,12 @@ class CellularTypeData:
             self.mass = np.concatenate(
                 (self.mass, np.array([mass_val], dtype=np.float64))
             )
+
+            # Update base_mass as well if it exists
+            if hasattr(self, "base_mass") and self.base_mass is not None:
+                self.base_mass = np.concatenate(
+                    (self.base_mass, np.array([mass_val], dtype=np.float64))
+                )
 
         # Update mutation history list
         self.mutation_history.append([])

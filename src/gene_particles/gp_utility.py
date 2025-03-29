@@ -16,7 +16,7 @@ vectorized operations for both performance and correctness guarantees.
 """
 
 import math
-from typing import TYPE_CHECKING, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypeVar, Union, cast, overload
 
 import numpy as np
 
@@ -39,39 +39,113 @@ else:
     InteractionParams = dict
 
 
-# Helper function for mutation calculations
+# Define generic type variables for robust type handling
+T = TypeVar("T", bound=Union[float, "FloatArray"])
+Range = Tuple[float, float]
+TraitValue = Union[float, "FloatArray"]
+
+
+# Helper functions for mutation calculations
+@overload
+def mutate_trait(
+    base_values: float,
+    mutation_mask: bool = True,
+    min_range: float = 0.0,
+    max_range: float = 0.0,
+) -> float: ...
+
+
+@overload
 def mutate_trait(
     base_values: "FloatArray",
     mutation_mask: "BoolArray",
-    min_range: float,
-    max_range: float,
-) -> "FloatArray":
-    """Generate mutated trait values from base values.
+    min_range: float = 0.0,
+    max_range: float = 0.0,
+) -> "FloatArray": ...
 
-    Applies random mutations to trait values based on a mutation mask and range.
+
+def mutate_trait(
+    base_values: TraitValue,
+    mutation_mask: Union[bool, "BoolArray"] = True,
+    min_range: float = 0.0,
+    max_range: float = 0.0,
+) -> TraitValue:
+    """Generate mutated trait values with precision and type flexibility.
+
+    Applies stochastic mutations to trait values using high-performance
+    vectorized operations. Handles both scalar and array inputs with
+    identical mutation logic but optimized execution paths.
 
     Args:
-        base_values: Original trait values to potentially mutate
-        mutation_mask: Boolean mask indicating which values should be mutated
-        min_range: Minimum mutation adjustment value
-        max_range: Maximum mutation adjustment value
+        base_values: Original trait value(s) to potentially mutate:
+            - Single float for individual trait mutation
+            - FloatArray for vectorized population-level mutations
+        mutation_mask: Boolean indicator(s) for which values to mutate:
+            - Boolean scalar (default=True) for single trait mutation
+            - BoolArray for selective mutation in population arrays
+        min_range: Lower bound of mutation adjustment (default=0.0)
+        max_range: Upper bound of mutation adjustment (default=0.0)
 
     Returns:
-        FloatArray: New trait values with mutations applied where masked
+        TraitValue: New values with mutations applied where masked:
+            - float for scalar inputs
+            - FloatArray for array inputs
+            Type matches input for perfect interface compatibility
+
+    Raises:
+        TypeError: When provided with an unsupported trait type
+
+    Note:
+        Mutations follow an additive model (trait + mutation) for stable
+        evolutionary dynamics while allowing sufficient diversity.
     """
-    values: "FloatArray" = base_values.copy()
-    if np.any(mutation_mask):
-        # Calculate number of mutations to apply based on mask
-        num_mutations: int = int(np.sum(mutation_mask))
+    # --- SCALAR PATHWAY: Optimized for single-value mutations ---
+    if isinstance(base_values, float) and isinstance(mutation_mask, bool):
+        # Fast path: Early return for no-mutation case
+        if not mutation_mask or min_range == max_range:
+            return base_values
 
-        # Generate mutation values within the specified range
-        mutation: "FloatArray" = np.random.uniform(
-            min_range, max_range, size=num_mutations
-        ).astype(np.float64)
+        # Apply mutation directly to scalar value
+        mutation_delta = np.random.uniform(min_range, max_range)
+        return base_values + mutation_delta
 
-        # Apply mutations only to masked values
-        values[mutation_mask] += mutation
-    return values
+    # --- VECTOR PATHWAY: Optimized for population-level mutations ---
+    elif isinstance(base_values, np.ndarray):
+        # Create mutation-safe copy to preserve original data
+        values = base_values.copy()
+
+        # Early return if mutation range is zero (no change)
+        if min_range == max_range:
+            return values
+
+        # Ensure mask is properly configured for vectorized operations
+        if isinstance(mutation_mask, bool):
+            if not mutation_mask:  # Fast path: no mutations to apply
+                return values
+            # Convert scalar mask to array mask (all True)
+            mutation_mask = np.ones_like(values, dtype=bool)
+
+        # Skip computation if no values would be mutated
+        if not np.any(mutation_mask):
+            return values
+
+        # Calculate number of mutations for efficient memory allocation
+        num_mutations = int(np.sum(mutation_mask))
+
+        # Generate precisely-targeted mutations only where needed
+        mutations = np.random.uniform(min_range, max_range, size=num_mutations).astype(
+            np.float64
+        )
+
+        # Apply vectorized mutations to masked values only
+        values[mutation_mask] += mutations
+
+        return values
+
+    # Strict type enforcement with explanatory error
+    raise TypeError(
+        f"Mutation requires float or ndarray, but received: {type(base_values).__name__}"
+    )
 
 
 def random_xy(window_width: int, window_height: int, n: int = 1) -> "FloatArray":

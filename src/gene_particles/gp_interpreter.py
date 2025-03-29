@@ -9,10 +9,7 @@ to functional behaviors, allowing for hereditary trait transmission, evolutionar
 adaptation, and complex emergent phenomena through vectorized particle operations.
 """
 
-from typing import TYPE_CHECKING, List, Optional, cast, overload
-
-import numpy as np
-from numpy.typing import NDArray
+from typing import TYPE_CHECKING, List, Optional, cast
 
 # Use TYPE_CHECKING for circular imports
 if TYPE_CHECKING:
@@ -27,12 +24,7 @@ from game_forge.src.gene_particles.gp_genes import (
     apply_predation_gene,
     apply_reproduction_gene,
 )
-from game_forge.src.gene_particles.gp_types import (
-    GeneData,
-    GeneSequence,
-    Range,
-    TraitValue,
-)
+from game_forge.src.gene_particles.gp_types import GeneData, GeneSequence
 
 ###############################################################
 # Genetic Interpreter Class
@@ -156,92 +148,3 @@ class GeneticInterpreter:
             self.apply_growth_gene(particle, gene_data, env)
         elif gene_type == "start_predation":
             self.apply_predation_gene(particle, others, gene_data, env)
-
-    @overload
-    def _mutate_trait(
-        self, trait: float, mutation_rate: float, mutation_range: Range
-    ) -> float: ...
-
-    @overload
-    def _mutate_trait(
-        self, trait: NDArray[np.float64], mutation_rate: float, mutation_range: Range
-    ) -> NDArray[np.float64]: ...
-
-    def _mutate_trait(
-        self, trait: TraitValue, mutation_rate: float, mutation_range: Range
-    ) -> TraitValue:
-        """Apply stochastic mutations to trait values with precise control.
-
-        Introduces controlled genetic variance using high-performance vectorized
-        operations. Preserves type integrity while allowing evolutionary divergence
-        through probabilistic trait modifications that follow biological mutation
-        patterns.
-
-        Args:
-            trait: Original trait value(s) for potential mutation. Accepts either:
-                - A single float value for individual traits
-                - A numpy ndarray for vectorized population-level mutations
-            mutation_rate: Probability threshold (0.0-1.0) determining whether each
-                trait value undergoes mutation. Higher values increase evolutionary
-                pressure.
-            mutation_range: Tuple of (min_range, max_range) defining the mutation
-                magnitude spectrum. Narrower ranges produce more conservative
-                evolutionary trajectories.
-
-        Returns:
-            TraitValue: Potentially mutated trait with identical type as input:
-                - float for scalar inputs
-                - ndarray for vector inputs
-                Each value either remains unchanged or contains its original value
-                plus a random mutation within the specified range.
-
-        Raises:
-            TypeError: When provided with an unsupported trait type that cannot
-                undergo mutation operations (neither float nor ndarray).
-
-        Note:
-            Mutations follow an additive model (trait + mutation) rather than
-            multiplicative to prevent exponential trait scaling in long-running
-            simulations. This design choice produces more stable evolutionary
-            dynamics while still allowing for sufficient diversity.
-        """
-        # Unpack mutation range boundaries for clarity and performance
-        min_range, max_range = mutation_range
-
-        # --- SCALAR PATHWAY: Optimized for single-value mutations ---
-        if isinstance(trait, float):
-            # Fast path: Early return for common no-mutation case
-            if np.random.random() >= mutation_rate:
-                return trait
-
-            # When mutation occurs, apply a precisely controlled shift
-            mutation_delta = np.random.uniform(min_range, max_range)
-            return trait + mutation_delta
-
-        # --- VECTOR PATHWAY: Optimized for population-level mutations ---
-        elif isinstance(trait, np.ndarray):
-            # Create a mutation-safe copy to preserve original data integrity
-            result = trait.copy()
-
-            # Generate vectorized mutation mask (True where mutations occur)
-            mutation_mask = np.random.random(trait.shape) < mutation_rate
-
-            # Optimization: Skip mutation generation if no mutations would occur
-            if not np.any(mutation_mask):
-                return result
-
-            # Generate precisely-targeted mutations only for masked values
-            mutation_count = np.count_nonzero(mutation_mask)
-            mutation_values = np.random.uniform(
-                min_range, max_range, size=mutation_count
-            )
-
-            # Apply vectorized mutations to masked trait values only
-            result[mutation_mask] += mutation_values
-
-            return result
-
-        # Strict type enforcement with explanatory error message
-        raise TypeError(
-            f"Mutation requires float or ndarray, but received: {type(trait).__name__}"
-        )
