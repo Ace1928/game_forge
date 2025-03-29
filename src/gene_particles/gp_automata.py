@@ -17,11 +17,13 @@ from game_forge.src.gene_particles.gp_config import SimulationConfig
 from game_forge.src.gene_particles.gp_manager import CellularTypeManager
 from game_forge.src.gene_particles.gp_renderer import Renderer
 from game_forge.src.gene_particles.gp_rules import InteractionRules
-from game_forge.src.gene_particles.gp_types import CellularTypeData
-from game_forge.src.gene_particles.gp_utility import (
+from game_forge.src.gene_particles.gp_types import (
     BoolArray,
+    CellularTypeData,
     FloatArray,
     IntArray,
+)
+from game_forge.src.gene_particles.gp_utility import (
     apply_synergy,
     generate_vibrant_colors,
     give_take_interaction,
@@ -288,10 +290,23 @@ class CellularAutomata:
         for maximum performance.
         """
         for i, j, params in self.rules_manager.rules:
-            # Convert raw params to properly typed dictionary
-            typed_params: Dict[str, Union[float, bool, FloatArray]] = {
-                k: v for k, v in params.items()
-            }
+            # Convert raw params to properly typed dictionary with validation
+            typed_params: Dict[str, Union[float, bool, FloatArray]] = {}
+            for k, v in params.items():
+                if isinstance(v, bool):
+                    typed_params[k] = v
+                elif isinstance(v, (int, float)):
+                    typed_params[k] = float(v)
+                elif isinstance(v, np.ndarray):
+                    # Check if array contains numeric data in a type-safe way
+                    try:
+                        # Direct check on dtype without hasattr
+                        is_numeric = np.issubdtype(v.dtype, np.number)  # type: ignore
+                        if is_numeric:
+                            typed_params[k] = v
+                    except (TypeError, AttributeError):
+                        pass
+                # Skip values that don't match our expected types
             self.apply_interaction_between_types(i, j, typed_params)
 
     def apply_interaction_between_types(

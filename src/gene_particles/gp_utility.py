@@ -3,79 +3,49 @@
 Provides core utilities and data structures for the Gene Particles simulation system,
 including trait definitions, vector operations, interaction physics, and energy transfer
 mechanisms with mathematical precision and type safety.
+
+This module implements:
+    - Type-safe vector and physical calculations
+    - Trait definition and validation framework
+    - Energy transfer mechanics with conservation laws
+    - Particle interaction physics with customizable force models
+    - Color generation for visual distinction between particle types
+
+All functions maintain dimensional consistency and type integrity across
+vectorized operations for both performance and correctness guarantees.
 """
 
 import math
-from dataclasses import dataclass
-from enum import Enum, auto
-from typing import Dict, List, Optional, Tuple, TypeVar, Union, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, cast
 
 import numpy as np
-from numpy.typing import NDArray
 
-from game_forge.src.gene_particles.gp_config import SimulationConfig
-
-# Type aliases for enhanced readability
-Vector2D = Tuple[float, float]  # (x, y) coordinate pair
-ColorRGB = Tuple[int, int, int]  # (r, g, b) color values 0-255
-Range = Tuple[float, float]  # (min, max) value constraints
-
-# Numpy array type aliases with precise typing
-FloatArray = NDArray[np.float64]  # Array of 64-bit floating point values
-IntArray = NDArray[np.int_]  # Array of integer values
-BoolArray = NDArray[np.bool_]  # Array of boolean values
-
-# Generic type variable for type-preserving operations
-T = TypeVar("T")
-
-# Interaction parameter dictionary with precise key typing
-InteractionParams = Dict[str, Union[float, bool, FloatArray]]
-
-
-class TraitType(Enum):
-    """Genetic trait categories for organizational and validation purposes.
-
-    Enumerates the core categories of genetic traits to facilitate organized
-    validation, processing, and evolutionary dynamics.
-    """
-
-    MOVEMENT = auto()  # Traits affecting particle motion
-    INTERACTION = auto()  # Traits affecting inter-particle forces
-    PERCEPTION = auto()  # Traits affecting sensing and awareness
-    REPRODUCTION = auto()  # Traits affecting breeding behaviors
-    SOCIAL = auto()  # Traits affecting group dynamics
-    ADAPTATION = auto()  # Traits affecting evolutionary dynamics
-
-
-@dataclass(frozen=True)
-class TraitDefinition:
-    """Immutable definition of a genetic trait's properties and constraints.
-
-    Provides a type-safe, immutable structure for defining genetic traits
-    with their valid ranges, categories, and default values.
-
-    Attributes:
-        name: Unique identifier for the trait
-        type: Categorical classification of trait purpose
-        range: Valid minimum/maximum values as (min, max) tuple
-        description: Human-readable explanation of trait function
-        default: Starting value for initialization
-    """
-
-    name: str
-    type: TraitType
-    range: Range
-    description: str
-    default: float
+# Break circular import with TYPE_CHECKING conditional
+if TYPE_CHECKING:
+    from game_forge.src.gene_particles.gp_config import SimulationConfig
+    from game_forge.src.gene_particles.gp_types import (
+        BoolArray,
+        ColorRGB,
+        FloatArray,
+        InteractionParams,
+        Vector2D,
+    )
+else:
+    # Direct type definitions to break import cycle
+    Vector2D = Tuple[float, float]
+    ColorRGB = Tuple[int, int, int]
+    FloatArray = np.ndarray
+    BoolArray = np.ndarray
+    InteractionParams = dict
 
 
 # Helper function for mutation calculations
 def mutate_trait(
-    base_values: FloatArray,
-    mutation_mask: BoolArray,
+    base_values: "FloatArray",
+    mutation_mask: "BoolArray",
     min_range: float,
     max_range: float,
-) -> FloatArray:
+) -> "FloatArray":
     """Generate mutated trait values from base values.
 
     Applies random mutations to trait values based on a mutation mask and range.
@@ -89,13 +59,13 @@ def mutate_trait(
     Returns:
         FloatArray: New trait values with mutations applied where masked
     """
-    values: FloatArray = base_values.copy()
+    values: "FloatArray" = base_values.copy()
     if np.any(mutation_mask):
         # Calculate number of mutations to apply based on mask
         num_mutations: int = int(np.sum(mutation_mask))
 
         # Generate mutation values within the specified range
-        mutation: FloatArray = np.random.uniform(
+        mutation: "FloatArray" = np.random.uniform(
             min_range, max_range, size=num_mutations
         ).astype(np.float64)
 
@@ -104,7 +74,7 @@ def mutate_trait(
     return values
 
 
-def random_xy(window_width: int, window_height: int, n: int = 1) -> FloatArray:
+def random_xy(window_width: int, window_height: int, n: int = 1) -> "FloatArray":
     """Generate random position coordinates within window boundaries.
 
     Creates vectorized random positions for efficient particle initialization
@@ -126,7 +96,7 @@ def random_xy(window_width: int, window_height: int, n: int = 1) -> FloatArray:
     assert n > 0, "Number of points must be positive"
 
     # Generate uniform random coordinates and explicitly cast to ensure type safety
-    coords: FloatArray = np.random.uniform(
+    coords: "FloatArray" = np.random.uniform(
         0, [window_width, window_height], (n, 2)
     ).astype(np.float64)
 
@@ -134,11 +104,11 @@ def random_xy(window_width: int, window_height: int, n: int = 1) -> FloatArray:
 
 
 def apply_growth_gene(
-    energy: FloatArray,
+    energy: "FloatArray",
     growth_factor: float,
     min_energy: float,
     max_energy: float,
-) -> FloatArray:
+) -> "FloatArray":
     """Apply growth gene to energy levels.
 
     Modifies energy levels based on a growth factor, ensuring values remain
@@ -154,7 +124,7 @@ def apply_growth_gene(
         FloatArray: Updated energy levels after applying growth factor
     """
     # Apply growth factor and clamp values to the specified range
-    new_energy: FloatArray = np.clip(energy * growth_factor, min_energy, max_energy)
+    new_energy: "FloatArray" = np.clip(energy * growth_factor, min_energy, max_energy)
     return new_energy
 
 
@@ -175,7 +145,7 @@ def generate_vibrant_colors(n: int) -> List[ColorRGB]:
     """
     assert n > 0, "Number of colors must be positive"
 
-    colors: List[ColorRGB] = []
+    colors: List["ColorRGB"] = []
     for i in range(n):
         # Evenly distribute hues around the color wheel
         hue = (i / n) % 1.0
@@ -211,7 +181,7 @@ def apply_interaction(
     a_y: float,
     b_x: float,
     b_y: float,
-    params: InteractionParams,
+    params: "InteractionParams",
 ) -> Vector2D:
     """Compute force exerted by cellular component B on A.
 
@@ -241,7 +211,7 @@ def apply_interaction(
     d_sq: float = dx * dx + dy * dy
 
     # Early return: no force if components overlap or are beyond max_dist
-    max_dist = cast(float, params["max_dist"])
+    max_dist = params["max_dist"]
     if d_sq == 0.0 or d_sq > max_dist**2:
         return 0.0, 0.0
 
@@ -256,7 +226,7 @@ def apply_interaction(
 
     # Apply potential-based interaction (repulsive)
     if params.get("use_potential", True):
-        pot_strength: float = cast(float, params.get("potential_strength", 1.0))
+        pot_strength: float = params.get("potential_strength", 1.0)
         F_pot: float = pot_strength / d
         fx += F_pot * dx_norm
         fy += F_pot * dy_norm
@@ -275,12 +245,12 @@ def apply_interaction(
 
 
 def give_take_interaction(
-    giver_energy: FloatArray,
-    receiver_energy: FloatArray,
-    giver_mass: Optional[FloatArray],
-    receiver_mass: Optional[FloatArray],
-    config: SimulationConfig,
-) -> Tuple[FloatArray, FloatArray, Optional[FloatArray], Optional[FloatArray]]:
+    giver_energy: "FloatArray",
+    receiver_energy: "FloatArray",
+    giver_mass: Optional["FloatArray"],
+    receiver_mass: Optional["FloatArray"],
+    config: "SimulationConfig",
+) -> Tuple["FloatArray", "FloatArray", Optional["FloatArray"], Optional["FloatArray"]]:
     """Transfer energy and optionally mass from receiver to giver particles.
 
     Implements predator-prey energy transfer mechanism where "receiver" loses
@@ -305,19 +275,21 @@ def give_take_interaction(
             Optional[FloatArray]: New mass values for giving particles (or None)
     """
     # Calculate energy transfer amounts (scalar or array depending on input shapes)
-    transfer_amount: FloatArray = receiver_energy * config.energy_transfer_factor
+    transfer_amount: "FloatArray" = receiver_energy * config.energy_transfer_factor
 
     # Execute energy transfer
-    updated_receiver: FloatArray = receiver_energy - transfer_amount
-    updated_giver: FloatArray = giver_energy + transfer_amount
+    updated_receiver: "FloatArray" = receiver_energy - transfer_amount
+    updated_giver: "FloatArray" = giver_energy + transfer_amount
 
     # Initialize mass variables with original values
-    updated_receiver_mass: Optional[FloatArray] = receiver_mass
-    updated_giver_mass: Optional[FloatArray] = giver_mass
+    updated_receiver_mass: Optional["FloatArray"] = receiver_mass
+    updated_giver_mass: Optional["FloatArray"] = giver_mass
 
     # Execute mass transfer if enabled and mass values are provided
     if config.mass_transfer and receiver_mass is not None and giver_mass is not None:
-        mass_transfer_amount: FloatArray = receiver_mass * config.energy_transfer_factor
+        mass_transfer_amount: "FloatArray" = (
+            receiver_mass * config.energy_transfer_factor
+        )
         updated_receiver_mass = receiver_mass - mass_transfer_amount
         updated_giver_mass = giver_mass + mass_transfer_amount
 
@@ -325,8 +297,8 @@ def give_take_interaction(
 
 
 def apply_synergy(
-    energyA: FloatArray, energyB: FloatArray, synergy_factor: float
-) -> Tuple[FloatArray, FloatArray]:
+    energyA: "FloatArray", energyB: "FloatArray", synergy_factor: float
+) -> Tuple["FloatArray", "FloatArray"]:
     """Apply energy sharing between allied cellular components.
 
     Redistributes energy between components based on synergy factor,
@@ -345,14 +317,35 @@ def apply_synergy(
             FloatArray: Updated energy levels for second component group
     """
     # Calculate average energy between component groups
-    avg_energy: FloatArray = (energyA + energyB) * 0.5
+    avg_energy: "FloatArray" = (energyA + energyB) * 0.5
 
     # Apply weighted average based on synergy factor
-    newA: FloatArray = (energyA * (1.0 - synergy_factor)) + (
+    newA: "FloatArray" = (energyA * (1.0 - synergy_factor)) + (
         avg_energy * synergy_factor
     )
-    newB: FloatArray = (energyB * (1.0 - synergy_factor)) + (
+    newB: "FloatArray" = (energyB * (1.0 - synergy_factor)) + (
         avg_energy * synergy_factor
     )
 
     return newA, newB
+
+
+if __name__ == "__main__":
+    """Module demonstration when run directly."""
+    print("🧬 Gene Particles Utility Module")
+    print("This module provides utility functions for the Gene Particles simulation.")
+    print("It is not intended to be run directly, but to be imported by other modules.")
+
+    # Simple demonstration of color generation
+    print("\nDemonstrating vibrant color generation:")
+    demo_colors = generate_vibrant_colors(5)
+    for i, color in enumerate(demo_colors):
+        print(f"  Color {i+1}: RGB{color}")
+
+    # Demonstrate vector operations
+    print("\nDemonstrating random position generation:")
+    positions = random_xy(100, 100, 3)
+    for i, pos in enumerate(positions):
+        print(f"  Position {i+1}: ({pos[0]:.2f}, {pos[1]:.2f})")
+
+    print("\nTo use this module, import it into your Gene Particles simulation.")

@@ -7,7 +7,20 @@ and emergent behavior algorithms with rigorous type safety.
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Optional, Protocol, Tuple, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Final,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    Tuple,
+    TypedDict,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,45 +49,93 @@ except ImportError:
             return np.array([]), np.array([])
 
 
-from game_forge.src.gene_particles.gp_config import SimulationConfig
-from game_forge.src.gene_particles.gp_utility import (
-    BoolArray,
-    ColorRGB,
-    FloatArray,
-    IntArray,
-    Range,
-    random_xy,
-)
+# Use TYPE_CHECKING to break circular import
+if TYPE_CHECKING:
+    from game_forge.src.gene_particles.gp_config import SimulationConfig
 
-# Generic type variable for trait values
-T = TypeVar("T")
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Type Definitions: Precision before the first keystroke                   ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-###############################################################
-# Type Definitions
-###############################################################
+# Domain-specific vector and data types with precise semantics
+Vector2D = Tuple[float, float]  # (x, y) coordinate pair in Cartesian space
+ColorRGB = Tuple[int, int, int]  # (r, g, b) color values constrained to 0-255
+Range = Tuple[float, float]  # (min, max) value constraints for trait boundaries
+
+# NumPy array specialized types for simulation operations
+FloatArray = NDArray[np.float64]  # For continuous genetic traits and positions
+IntArray = NDArray[np.int64]  # For discrete identifiers and counters
+BoolArray = NDArray[np.bool_]  # For vectorized condition masks
+
+# Generic type variable for type-preserving functions
+T = TypeVar("T")  # Enables generic functions that preserve input/output types
+
+# Validation result typing with explicit semantics
+ValidationResult = Union[Literal[True], str]  # Success or error message
+VALID: Final[Literal[True]] = True  # Canonical success value
+
+# Constraint definitions
+RangeConstraint = Dict[str, Range]  # Parameter name to valid range mapping
+PROBABILITY_BOUNDS: Final[Range] = (0.0, 1.0)  # For probability parameters
+
+# Type aliases for better readability
+GeneData = List[float]
+GeneSequence = List[List[Union[str, float]]]
+TraitValue = Union[
+    float, NDArray[np.float64]
+]  # Allow both scalar and array trait values
+
+
+class GeneType(Enum):
+    """Precise categorization of genetic element functions."""
+
+    MOVEMENT = auto()
+    INTERACTION = auto()
+    ENERGY = auto()
+    REPRODUCTION = auto()
+    GROWTH = auto()
+    PREDATION = auto()
+
+
+# Gene type mapping for enhanced performance and type safety
+GENE_TYPE_MAP: Dict[str, GeneType] = {
+    "start_movement": GeneType.MOVEMENT,
+    "start_interaction": GeneType.INTERACTION,
+    "start_energy": GeneType.ENERGY,
+    "start_reproduction": GeneType.REPRODUCTION,
+    "start_growth": GeneType.GROWTH,
+    "start_predation": GeneType.PREDATION,
+}
 
 
 class TraitType(Enum):
-    """Genetic trait categories for organizational and validation purposes.
+    """
+    Genetic trait categories for organizational and validation purposes.
 
-    Enumerates the core categories of genetic traits to facilitate organized
-    validation, processing, and evolutionary dynamics.
+    Each category represents a distinct aspect of particle behavior that
+    can be genetically influenced and mutated during evolution.
     """
 
-    MOVEMENT = auto()  # Traits affecting particle motion
-    INTERACTION = auto()  # Traits affecting inter-particle forces
-    PERCEPTION = auto()  # Traits affecting sensing and awareness
-    REPRODUCTION = auto()  # Traits affecting breeding behaviors
-    SOCIAL = auto()  # Traits affecting group dynamics
-    ADAPTATION = auto()  # Traits affecting evolutionary dynamics
+    MOVEMENT = auto()  # Traits affecting particle motion and velocity
+    INTERACTION = auto()  # Traits affecting inter-particle forces and reactions
+    PERCEPTION = auto()  # Traits affecting sensing distance and environmental awareness
+    REPRODUCTION = (
+        auto()
+    )  # Traits affecting breeding frequency and offspring characteristics
+    SOCIAL = auto()  # Traits affecting group formation and collective behaviors
+    ADAPTATION = (
+        auto()
+    )  # Traits affecting evolutionary plasticity and response to pressure
 
 
 @dataclass(frozen=True)
 class TraitDefinition:
-    """Immutable definition of a genetic trait's properties and constraints.
+    """
+    Immutable definition of a genetic trait's properties and constraints.
 
-    Provides a type-safe, immutable structure for defining genetic traits
-    with their valid ranges, categories, and default values.
+    Acts as a schema for a genetic trait, defining its valid range,
+    classification, and baseline values. Immutability ensures trait
+    definitions remain consistent throughout simulation runtime.
 
     Attributes:
         name: Unique identifier for the trait
@@ -90,6 +151,40 @@ class TraitDefinition:
     description: str
     default: float
 
+    def __post_init__(self) -> None:
+        """Validate trait definition parameters upon initialization."""
+        if not self.name:
+            raise ValueError("Trait name must be a non-empty string")
+
+        if len(self.range) != 2:
+            raise ValueError("Range must be a tuple of two numeric values")
+
+        if self.range[0] >= self.range[1]:
+            raise ValueError(
+                f"Range minimum ({self.range[0]}) must be less than maximum ({self.range[1]})"
+            )
+
+        if not self.description:
+            raise ValueError("Description must be a non-empty string")
+
+        if not (self.range[0] <= self.default <= self.range[1]):
+            raise ValueError(
+                f"Default value {self.default} is outside valid range {self.range}"
+            )
+
+
+class Validator(Protocol):
+    """Protocol defining the validation interface for configuration objects."""
+
+    def _validate(self) -> None:
+        """
+        Verify configuration integrity and parameter constraints.
+
+        Raises:
+            ValueError: If any parameter violates defined constraints
+        """
+        ...
+
 
 class CellularTypeProtocol(Protocol):
     """Structural protocol defining the expected shape of cellular type data.
@@ -104,6 +199,82 @@ class CellularTypeProtocol(Protocol):
     energy: NDArray[np.float64]  # Energy levels
     speed_factor: NDArray[np.float64]  # Speed trait values
     color: ColorRGB  # RGB color tuple for this cellular type
+
+
+# Helper function to generate random coordinates
+def random_xy(window_width: int, window_height: int, n: int = 1) -> "FloatArray":
+    """Generate random position coordinates within window boundaries.
+
+    Creates vectorized random positions for efficient particle initialization
+    within the specified simulation window dimensions.
+
+    Args:
+        window_width: Width of simulation window in pixels
+        window_height: Height of simulation window in pixels
+        n: Number of coordinate pairs to generate
+
+    Returns:
+        FloatArray: Array of shape (n, 2) containing random (x, y) coordinates
+
+    Raises:
+        AssertionError: If window dimensions are non-positive or n < 1
+    """
+    assert window_width > 0, "Window width must be positive"
+    assert window_height > 0, "Window height must be positive"
+    assert n > 0, "Number of points must be positive"
+
+    # Generate uniform random coordinates and explicitly cast to ensure type safety
+    coords: "FloatArray" = np.random.uniform(
+        0, [window_width, window_height], (n, 2)
+    ).astype(np.float64)
+
+    return coords
+
+
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ Type Definitions: Precise interaction parameter schemas                  ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+
+class InteractionType(Enum):
+    """Classification of physical interaction types between cellular entities.
+
+    Defines the fundamental force models used for particle interactions:
+        - POTENTIAL: Distance-based radial forces (attraction/repulsion)
+        - GRAVITY: Mass-based gravitational forces (always attractive)
+        - HYBRID: Combined potential and gravity (complex behaviors)
+    """
+
+    POTENTIAL = auto()  # Distance-based radial forces
+    GRAVITY = auto()  # Mass-based gravitational forces
+    HYBRID = auto()  # Combination of potential and gravity
+
+
+class InteractionParams(TypedDict):
+    """Type-safe definition of physical interaction parameters between cell types.
+
+    All interactions use potential-based forces, while mass-based types may
+    additionally use gravitational forces, creating complex hybrid behaviors.
+
+    Attributes
+    ----------
+    use_potential : bool
+        Whether to apply potential-based forces
+    use_gravity : bool
+        Whether to apply gravity-based forces
+    potential_strength : float
+        Positive = repulsion, Negative = attraction
+    gravity_factor : float
+        Strength multiplier for gravitational force
+    max_dist : float
+        Maximum interaction distance cutoff
+    """
+
+    use_potential: bool  # Whether to apply potential-based forces
+    use_gravity: bool  # Whether to apply gravity-based forces
+    potential_strength: float  # Positive = repulsion, Negative = attraction
+    gravity_factor: float  # Strength multiplier for gravitational force
+    max_dist: float  # Maximum interaction distance cutoff
 
 
 class CellularTypeData:
@@ -392,7 +563,7 @@ class CellularTypeData:
         """
         pass
 
-    def remove_dead(self, config: SimulationConfig) -> None:
+    def remove_dead(self, config: "SimulationConfig") -> None:
         """Remove dead cellular components and redistribute their energy.
 
         Performs energy transfer from components dying of old age to their
@@ -469,7 +640,7 @@ class CellularTypeData:
             self.mass = self.mass[:min_size]
 
     def _process_energy_transfer(
-        self, alive_mask: BoolArray, config: SimulationConfig
+        self, alive_mask: BoolArray, config: "SimulationConfig"
     ) -> None:
         """Transfer energy from dying components to nearby living components.
 
@@ -547,12 +718,12 @@ class CellularTypeData:
                     self.energy[batch_indices[j]] = 0.0
 
     def _filter_arrays(self, alive_mask: BoolArray) -> None:
-        """Filter all component arrays to keep only alive components.
+        """
+        Filter all component arrays to keep only alive components.
 
         Args:
             alive_mask: Boolean array indicating which components are alive
         """
-        # Create a list of all array attributes
         arrays_to_filter: List[str] = [
             "x",
             "y",

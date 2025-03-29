@@ -10,14 +10,14 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from game_forge.src.gene_particles.gp_config import SimulationConfig
-from game_forge.src.gene_particles.gp_types import CellularTypeData
-from game_forge.src.gene_particles.gp_utility import (
+from game_forge.src.gene_particles.gp_types import (
     BoolArray,
+    CellularTypeData,
     ColorRGB,
     FloatArray,
     IntArray,
-    mutate_trait,
 )
+from game_forge.src.gene_particles.gp_utility import mutate_trait
 
 ###############################################################
 # Cellular Type Manager (Handles Multi-Type Operations & Reproduction)

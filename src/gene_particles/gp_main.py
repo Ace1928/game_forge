@@ -1,81 +1,97 @@
-"""
-GeneParticles: Advanced Cellular Automata with Dynamic Gene Expression, Emergent Behaviors,
-and Extended Complexity
--------------------------------------------------------------------------------------------------
-A hyper-advanced particle simulation that models cellular-like entities ("particles") endowed with
-complex dynamic genetic traits, adaptive behaviors, emergent properties, hierarchical speciation,
-and intricate interaction networks spanning multiple dimensions of trait synergy and competition.
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""GeneParticles: Cellular Automata with Gene Expression and Emergent Behaviors.
 
-This simulation implements:
-1. Dynamic Gene Expression & Hyper-Complex Heredity
-    - Multiple mutable traits influencing behavior and reproduction
+A particle simulation modeling cellular entities with genetic traits, adaptive behaviors,
+and complex interaction networks.
+
+Features
+--------
+1. Dynamic Gene Expression & Complex Heredity
+    - Mutable traits influencing behavior and reproduction
     - Hierarchical gene clusters with layered mutation strategies
     - Nonlinear genotype-to-phenotype mappings with environmental feedback
 
-2. Adaptive Population Management & Homeostasis
-    - Real-time FPS monitoring with optimization triggers
-    - Multi-factor fitness-based culling
-    - Dynamic population growth based on resource availability
+2. Adaptive Population Management
+    - Real-time performance monitoring with optimization triggers
+    - Fitness-based population control
+    - Resource-dependent population dynamics
 
-3. Enhanced Evolutionary Mechanisms & Speciation
-    - Resource competition with synergy-influenced survival
-    - Multidimensional genetic drift triggering speciation events
-    - Complete lineage tracking with phylogenetic trees
+3. Evolutionary Mechanisms & Speciation
+    - Resource competition with trait-influenced survival
+    - Genetic drift triggering speciation events
+    - Complete lineage tracking and phylogenetic trees
 
-4. Multi-Scale Complex Interactions
+4. Multi-Scale Interactions
     - Force-based dynamics (potential, gravitational, synergistic)
-    - Conditional energy routing based on species relationships
-    - Emergent flocking, predation, and colony behaviors
+    - Species-dependent energy transfer
+    - Emergent collective behaviors
 
-5. Vectorized Performance Optimization
-    - NumPy-based computation for all operations
-    - Multi-level spatial partitioning using KD-trees
-    - Adaptive rendering and parameterized update frequencies
+5. Vectorized Performance
+    - NumPy-based computation
+    - Spatial partitioning with KD-trees
+    - Adaptive rendering
 
-Technical Requirements:
----------------------
+Requirements
+-----------
 - Python 3.8+
 - NumPy >= 1.20.0
 - Pygame >= 2.0.0
 - SciPy >= 1.7.0
 
-Installation:
-------------
-pip install numpy pygame scipy
+Installation
+-----------
+.. code-block:: bash
 
-Usage:
-------
-python geneparticles.py
+     pip install numpy pygame scipy
 
-Controls:
+Usage
+-----
+.. code-block:: bash
+
+     python geneparticles.py
+
+Controls
+--------
 - ESC: Exit simulation
 """
 
-from gp_automata import CellularAutomata
-from gp_config import SimulationConfig
+import os
+import sys
+from typing import NoReturn
 
-###############################################################
-# Entry Point
-###############################################################
+# Add proper path handling to avoid import issues when running from different locations
+script_dir: str = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(script_dir))))
+
+# Use absolute imports to avoid circular dependency issues
+from game_forge.src.gene_particles.gp_automata import CellularAutomata
+from game_forge.src.gene_particles.gp_config import SimulationConfig
 
 
-def main():
+def main() -> NoReturn:
     """Initialize and run the Gene Particles simulation.
 
-    Creates a simulation with default configuration parameters and executes
-    the main evolutionary loop until termination conditions are met.
+    Creates a simulation with default configuration and executes the main
+    evolutionary loop until termination conditions are met.
 
     The simulation continues until one of the following occurs:
-        - User presses the ESC key
-        - User closes the simulation window
-        - Simulation reaches configured maximum frame count
+         - User presses the ESC key
+         - User closes the simulation window
+         - Simulation reaches configured maximum frame count
 
-    Returns:
-        NoReturn: Function does not return normally, terminates via system exit
+    Returns
+    -------
+    NoReturn
+         Function terminates via system exit
 
-    Raises:
-        ImportError: If required dependencies are not installed
-        RuntimeError: If simulation initialization fails
+    Raises
+    ------
+    ImportError
+         If required dependencies are not installed
+    RuntimeError
+         If simulation initialization fails
     """
     # Create simulation configuration with default parameters
     config: SimulationConfig = SimulationConfig()
@@ -86,6 +102,10 @@ def main():
     # Execute main simulation loop until termination
     cellular_automata.main_loop()
 
+    # Unreachable but satisfies return type requirements
+    sys.exit(0)
+
 
 if __name__ == "__main__":
+    # Entry point when executed directly
     main()

@@ -43,120 +43,51 @@ Controls: ESC to exit
 from __future__ import annotations  # Enable self-referential type hints
 
 from dataclasses import asdict, dataclass, field
-from enum import Enum, auto
-from typing import (
-    ClassVar,
-    Dict,
-    Final,
-    List,
-    Literal,
-    Mapping,
-    Protocol,
-    Tuple,
-    TypeVar,
-    Union,
-    cast,
-)
+from enum import Enum
+from typing import ClassVar, Dict, Final, List, Mapping, Tuple, cast
 
 import numpy as np
-from numpy.typing import NDArray
+
+from game_forge.src.gene_particles.gp_types import (
+    ColorRGB,
+    FloatArray,
+    Range,
+    TraitDefinition,
+    TraitType,
+)
+
+# Constants
+###############################################################
+# Visual Constants - Color and Layout Configuration
+###############################################################
+
+# Text colors for distinct statistic categories
+FPS_COLOR: Final[ColorRGB] = (50, 255, 50)  # Bright green for performance metrics
+SPECIES_COLOR: Final[ColorRGB] = (255, 180, 0)  # Orange for taxonomic information
+PARTICLES_COLOR: Final[ColorRGB] = (100, 200, 255)  # Light blue for population data
+
+# Background configuration for statistics display
+STATS_BG_ALPHA: Final[int] = 120  # Semi-transparency level (0-255)
+STATS_HEIGHT: Final[int] = 60  # Vertical space for statistics panel
 
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ Type Definitions: Precision before the first keystroke                   ┃
+# ┃ Physical Constants: System parameters and evolutionary constraints        ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-# NumPy array specialized types for improved readability and safety
-FloatArray = NDArray[np.float64]  # For continuous genetic traits and positions
-IntArray = NDArray[np.int64]  # For discrete identifiers and counters
-BoolArray = NDArray[np.bool_]  # For vectorized condition masks
+# Relationship formation probabilities
+SYNERGY_PROBABILITY: Final[float] = 0.1  # Baseline chance for synergy relation
+GIVE_TAKE_PROBABILITY: Final[float] = 0.1  # Baseline chance for predation relation
 
-# Core simulation type aliases
-T = TypeVar("T")  # Generic type for configuration factory methods
-Range = Tuple[float, float]  # (min_value, max_value) bounds
-RangeConstraint = Dict[str, Range]  # Parameter name to valid range mapping
-ValidationResult = Union[Literal[True], str]  # Success or error message
+# Evolution parameters
+EVOLUTION_ADJUSTMENT_RANGE: Final[Tuple[float, float]] = (0.95, 1.05)  # ±5% mutation
 
-# Validation result helpers
-VALID: Final[Literal[True]] = True
-PROBABILITY_BOUNDS: Final[Range] = (0.0, 1.0)
+# Spatial constraints
+INTERACTION_DISTANCE_RANGE: Final[Tuple[float, float]] = (50.0, 200.0)  # Units
+MIN_INTERACTION_DISTANCE: Final[float] = 10.0  # Minimum distance
 
-
-class TraitType(Enum):
-    """
-    Genetic trait categories for organizational and validation purposes.
-
-    Each category represents a distinct aspect of particle behavior that
-    can be genetically influenced and mutated during evolution.
-    """
-
-    MOVEMENT = auto()  # Traits affecting particle motion and velocity
-    INTERACTION = auto()  # Traits affecting inter-particle forces and reactions
-    PERCEPTION = auto()  # Traits affecting sensing distance and environmental awareness
-    REPRODUCTION = (
-        auto()
-    )  # Traits affecting breeding frequency and offspring characteristics
-    SOCIAL = auto()  # Traits affecting group formation and collective behaviors
-    ADAPTATION = (
-        auto()
-    )  # Traits affecting evolutionary plasticity and response to pressure
-
-
-@dataclass(frozen=True)
-class TraitDefinition:
-    """
-    Immutable definition of a genetic trait's properties and constraints.
-
-    Acts as a schema for a genetic trait, defining its valid range,
-    classification, and baseline values. Immutability ensures trait
-    definitions remain consistent throughout simulation runtime.
-
-    Attributes:
-        name: Unique identifier for the trait
-        type: Categorical classification of trait purpose
-        range: Valid minimum/maximum values as (min, max) tuple
-        description: Human-readable explanation of trait function
-        default: Starting value for initialization
-    """
-
-    name: str
-    type: TraitType
-    range: Range
-    description: str
-    default: float
-
-    def __post_init__(self) -> None:
-        """Validate trait definition parameters upon initialization."""
-        if not self.name:
-            raise ValueError("Trait name must be a non-empty string")
-
-        if len(self.range) != 2:
-            raise ValueError("Range must be a tuple of two numeric values")
-
-        if self.range[0] >= self.range[1]:
-            raise ValueError(
-                f"Range minimum ({self.range[0]}) must be less than maximum ({self.range[1]})"
-            )
-
-        if not self.description:
-            raise ValueError("Description must be a non-empty string")
-
-        if not (self.range[0] <= self.default <= self.range[1]):
-            raise ValueError(
-                f"Default value {self.default} is outside valid range {self.range}"
-            )
-
-
-class Validator(Protocol):
-    """Protocol defining the validation interface for configuration objects."""
-
-    def _validate(self) -> None:
-        """
-        Verify configuration integrity and parameter constraints.
-
-        Raises:
-            ValueError: If any parameter violates defined constraints
-        """
-        ...
+# Force parameters
+SYNERGY_STRENGTH_RANGE: Final[Tuple[float, float]] = (0.1, 0.9)  # Dimensionless factor
+GRAVITY_STRENGTH_RANGE: Final[Tuple[float, float]] = (0.1, 2.0)  # Dimensionless factor
 
 
 @dataclass
