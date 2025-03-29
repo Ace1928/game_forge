@@ -1,43 +1,8 @@
 """
 GeneParticles: Cellular Automata with Dynamic Gene Expression and Emergent Behaviors
 ------------------------------------------------------------------------------------
-A particle simulation modeling cellular entities with genetic traits, adaptive behaviors,
-emergent properties, and complex interaction networks.
-
-Core Simulation Features:
-1. Dynamic Gene Expression
-    - Mutable traits affecting behavior and reproduction
-    - Hierarchical gene structures with layered mutation strategies
-    - Environment-responsive phenotype expression
-
-2. Adaptive Population Management
-    - Performance-aware optimization triggers
-    - Fitness-weighted population culling
-    - Resource-based population regulation
-
-3. Evolutionary Mechanisms
-    - Competitive resource dynamics
-    - Multi-factor speciation events
-    - Complete lineage tracking
-
-4. Multi-Scale Interactions
-    - Potential, gravitational, and synergistic forces
-    - Species-dependent energy transfers
-    - Emergent group behaviors (flocking, predation, colonies)
-
-5. Vectorized Performance
-    - NumPy-accelerated computation
-    - Spatial partitioning optimization
-    - Adaptive rendering systems
-
-Technical Requirements:
-- Python 3.8+
-- NumPy >= 1.20.0
-- Pygame >= 2.0.0
-- SciPy >= 1.7.0
-
-Usage: python geneparticles.py
-Controls: ESC to exit
+config.py
+Simulation Config and Genetic Params Config and Simulation Constants
 """
 
 from __future__ import annotations  # Enable self-referential type hints
