@@ -500,45 +500,45 @@ class SimulationConfig:
         """
         # Population parameters
         self.n_cell_types: int = 5
-        self.particles_per_type: int = 50
+        self.particles_per_type: int = 100
         self.min_particles_per_type: int = 50
         self.max_particles_per_type: int = 1000
 
         # Physical parameters
         self.mass_range: Range = (1.0, 100.0)
-        self.base_velocity_scale: float = 1.0
+        self.base_velocity_scale: float = 0.1
         self.mass_based_fraction: float = 1.0
-        self.interaction_strength_range: Range = (-2.0, 1.5)
-        self.friction: float = 0.1
-        self.global_temperature: float = 0.5
+        self.interaction_strength_range: Range = (-0.5, 2.0)
+        self.friction: float = 0.05
+        self.global_temperature: float = 0.25
 
         # Energy system parameters
         self.initial_energy: float = 150.0
-        self.predation_range: float = 50.0
-        self.energy_transfer_factor: float = 0.7
+        self.predation_range: float = 100
+        self.energy_transfer_factor: float = 1.0
         self.mass_transfer: bool = True
         self.energy_efficiency_range: Range = (-0.4, 2.0)
-        self.max_energy: float = 300.0
+        self.max_energy: float = 500.0
 
         # Lifecycle parameters
         self.max_frames: int = 0  # 0 = infinite
         self.max_age: float = np.inf
-        self.evolution_interval: int = 20000
-        self.synergy_range: float = 200.0
+        self.evolution_interval: int = 100
+        self.synergy_range: float = 100.0
 
         # Reproduction parameters
-        self.reproduction_energy_threshold: float = 180.0
-        self.reproduction_mutation_rate: float = 0.3
-        self.reproduction_offspring_energy_fraction: float = 0.5
+        self.reproduction_energy_threshold: float = 100.0
+        self.reproduction_mutation_rate: float = 0.5
+        self.reproduction_offspring_energy_fraction: float = 0.75
 
         # Flocking behavior parameters
-        self.alignment_strength: float = 0.3
-        self.cohesion_strength: float = 0.8
-        self.separation_strength: float = 0.5
-        self.cluster_radius: float = 50.0
+        self.alignment_strength: float = 0.25
+        self.cohesion_strength: float = 0.25
+        self.separation_strength: float = 0.25
+        self.cluster_radius: float = 10.0
 
         # Visualization parameters
-        self.particle_size: float = 5.0
+        self.particle_size: float = 2.0
 
         # Fitness and selection parameters
         self.culling_fitness_weights: Dict[str, float] = {
