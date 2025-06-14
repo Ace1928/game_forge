@@ -9,6 +9,7 @@ import pygame
 
 from .eu_agent import Agent
 from .eu_config import UniverseConfig
+from .eu_rules import GravityRule
 
 
 class Universe:
@@ -17,6 +18,8 @@ class Universe:
     def __init__(self, config: UniverseConfig) -> None:
         self.config = config
         self.agents: List[Agent] = []
+        self.gravity = GravityRule()
+        self.log: List[str] = []
         self._initialize_agents()
 
     def _initialize_agents(self) -> None:
@@ -37,6 +40,8 @@ class Universe:
 
     def update(self) -> None:
         """Advance simulation state."""
+        self.gravity.apply(self.agents)
+
         new_agents: List[Agent] = []
         for agent in list(self.agents):
             agent.update(self.config)
@@ -45,6 +50,11 @@ class Universe:
             if agent.energy <= 0:
                 self.agents.remove(agent)
         self.agents.extend(new_agents)
+
+    def log_event(self, message: str) -> None:
+        """Record an event in the universe log and print it."""
+        self.log.append(message)
+        print(message)
 
     def render(self, surface: pygame.Surface) -> None:
         """Draw all agents to the surface."""

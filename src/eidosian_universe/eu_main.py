@@ -1,12 +1,27 @@
-"""Eidosian Universe: a simple emergent simulation."""
+"""Entry point for running the Eidosian Universe simulation."""
 
 from __future__ import annotations
 
 import sys
 import pygame
 
-from .eu_config import UniverseConfig
-from .eu_world import Universe
+# When executed directly, ``__package__`` will be ``None`` and relative imports
+# fail.  To support ``python eu_main.py`` from within the ``src`` directory we
+# manually adjust ``sys.path`` and use absolute imports.  When run as a module
+# (``python -m eidosian_universe.eu_main``) the relative imports work normally.
+
+if __package__ in (None, ""):
+    import os
+    import sys
+
+    sys.path.append(os.path.dirname(__file__))
+    from eidosian_universe.eu_config import UniverseConfig
+    from eidosian_universe.eu_world import Universe
+    from eidosian_universe.eu_ai import EidosAI
+else:
+    from .eu_config import UniverseConfig
+    from .eu_world import Universe
+    from .eu_ai import EidosAI
 
 
 def main() -> None:
@@ -16,6 +31,7 @@ def main() -> None:
     screen = pygame.display.set_mode((config.width, config.height))
     clock = pygame.time.Clock()
     universe = Universe(config)
+    ai = EidosAI(universe)
 
     running = True
     while running:
@@ -30,6 +46,7 @@ def main() -> None:
                     universe._create_random_agent()
                 )
 
+        ai.update()
         universe.update()
         universe.render(screen)
         pygame.display.flip()
