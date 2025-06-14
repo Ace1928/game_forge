@@ -36,3 +36,19 @@ class GravityRule:
                 b.dx -= ax
                 b.dy -= ay
 
+
+@dataclass
+class MetabolismRule:
+    """Parameters governing energy costs and limits."""
+
+    movement_cost: float = 0.05
+    reproduction_cost: float = 30.0
+    max_energy: float = 100.0
+
+
+@dataclass
+class ResourceRule:
+    """Parameters controlling resource spawning."""
+
+    spawn_rate: int = 1
+
