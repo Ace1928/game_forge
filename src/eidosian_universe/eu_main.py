@@ -28,7 +28,8 @@ def main() -> None:
     """Run the Eidosian Universe simulation."""
     pygame.init()
     config = UniverseConfig()
-    screen = pygame.display.set_mode((config.width, config.height))
+    flags = pygame.FULLSCREEN if config.fullscreen else 0
+    screen = pygame.display.set_mode((config.width, config.height), flags)
     clock = pygame.time.Clock()
     universe = Universe(config)
     ai = EidosAI(universe)
@@ -42,9 +43,11 @@ def main() -> None:
                 running = False
             if event.type == pygame.MOUSEBUTTONDOWN:
                 x, y = event.pos
-                universe.agents.append(
-                    universe._create_random_agent()
-                )
+                universe.agents.append(universe._create_random_agent(x=x, y=y))
+            if event.type == pygame.FINGERDOWN:
+                x = int(event.x * config.width)
+                y = int(event.y * config.height)
+                universe.agents.append(universe._create_random_agent(x=x, y=y))
 
         ai.update()
         universe.update()

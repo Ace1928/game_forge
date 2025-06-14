@@ -21,6 +21,8 @@ class EidosAI:
         self._ticks += 1
         if self._ticks % 300 == 0:
             self._tweak_gravity()
+        if self._ticks % 500 == 0:
+            self._tweak_metabolism()
 
     def _tweak_gravity(self) -> None:
         gravity = self.universe.gravity
@@ -29,5 +31,14 @@ class EidosAI:
         gravity.strength = new
         self.universe.log_event(
             f"Eidos refined gravity: {old:.3f} -> {new:.3f}"
+        )
+
+    def _tweak_metabolism(self) -> None:
+        meta = self.universe.metabolism
+        old_move = meta.movement_cost
+        new_move = max(0.01, min(0.2, old_move * random.uniform(0.9, 1.1)))
+        meta.movement_cost = new_move
+        self.universe.log_event(
+            f"Eidos adjusted movement cost: {old_move:.3f} -> {new_move:.3f}"
         )
 
